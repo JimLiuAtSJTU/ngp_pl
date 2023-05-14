@@ -1,3 +1,5 @@
+import datetime
+
 import torch
 from torch import nn
 from opt import get_opts
@@ -76,12 +78,19 @@ class NeRFSystem(LightningModule):
             create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
 
     def forward(self, batch, split):
+
         if split=='train':
-            poses = self.poses[batch['img_idxs']]
-            directions = self.directions[batch['pix_idxs']]
+            return self.forward_train(batch,split)
         else:
-            poses = batch['pose']
-            directions = self.directions
+            assert split=='test'
+            return self.forward_inference(batch,split)
+
+
+
+    def forward_train(self,batch, split):
+
+        poses = self.poses[batch['img_idxs']]
+        directions = self.directions[batch['pix_idxs']]
 
         if self.hparams.optimize_ext:
             dR = axisangle_to_R(self.dR[batch['img_idxs']])
@@ -99,6 +108,28 @@ class NeRFSystem(LightningModule):
 
         return render(self.model, rays_o, rays_d, **kwargs)
 
+
+    def forward_inference(self,batch, split):
+
+        poses = batch['pose']
+        directions = self.directions
+
+        if self.hparams.optimize_ext:
+            dR = axisangle_to_R(self.dR[batch['img_idxs']])
+            poses[..., :3] = dR @ poses[..., :3]
+            poses[..., 3] += self.dT[batch['img_idxs']]
+
+        rays_o, rays_d = get_rays(directions, poses)
+
+        kwargs = {'test_time': split!='train',
+                  'random_bg': self.hparams.random_bg}
+        kwargs['trunks'] = 32768*32
+
+        if self.hparams.scale > 0.5:
+            kwargs['exp_step_factor'] = 1/256
+        if self.hparams.use_exposure:
+            kwargs['exposure'] = batch['exposure']
+        return render(self.model, rays_o[:], rays_d[:], **kwargs)
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
@@ -128,12 +159,12 @@ class NeRFSystem(LightningModule):
             if n not in ['dR', 'dT']: net_params += [p]
 
         opts = []
-        self.net_opt = FusedAdam(net_params, self.hparams.lr, eps=1e-15)
+        self.net_opt = FusedAdam(net_params, self.hparams.lr)#, eps=1e-15)
         opts += [self.net_opt]
         if self.hparams.optimize_ext:
             opts += [FusedAdam([self.dR, self.dT], 1e-6)] # learning rate is hard-coded
         net_sch = CosineAnnealingLR(self.net_opt,
-                                    self.hparams.num_epochs,
+                                    self.hparams.num_epochs*4//5,
                                     self.hparams.lr/30)
 
         return opts, [net_sch]
@@ -147,7 +178,7 @@ class NeRFSystem(LightningModule):
 
     def val_dataloader(self):
         return DataLoader(self.test_dataset,
-                          num_workers=8,
+                          num_workers=1,
                           batch_size=None,
                           pin_memory=True)
 
@@ -192,6 +223,15 @@ class NeRFSystem(LightningModule):
 
     def validation_step(self, batch, batch_nb):
         rgb_gt = batch['rgb']
+
+        img_sizes=rgb_gt
+        print(f'img size {img_sizes.shape}')
+
+
+        trunk= 16384
+
+
+
         results = self(batch, split='test')
 
         logs = {}
@@ -243,16 +283,22 @@ class NeRFSystem(LightningModule):
         return items
 
 
+
 if __name__ == '__main__':
+
+    #torch.cuda.memory_summary(device=None, abbreviated=False)
+
+    t0=datetime.datetime.now()
     hparams = get_opts()
     if hparams.val_only and (not hparams.ckpt_path):
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = NeRFSystem(hparams)
-
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<128>"
+    #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
-                              every_n_epochs=hparams.num_epochs,
+                              every_n_epochs=1,
                               save_on_train_epoch_end=True,
                               save_top_k=-1)
     callbacks = [ckpt_cb, TQDMProgressBar(refresh_rate=1)]
@@ -262,7 +308,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=hparams.num_epochs,
+                      check_val_every_n_epoch=5,
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,
@@ -274,6 +320,12 @@ if __name__ == '__main__':
                       precision=16)
 
     trainer.fit(system, ckpt_path=hparams.ckpt_path)
+
+    t1=datetime.datetime.now()
+
+    dt = (t1 - t0).seconds
+    dmins = np.floor(dt / 60)
+    print(f'time elapse={dt} seconds,i.e.{dmins} min {dt - dmins * 60} s')
 
     if not hparams.val_only: # save slimmed ckpt for the last epoch
         ckpt_ = \

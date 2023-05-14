@@ -23,24 +23,75 @@ def render(model, rays_o, rays_d, **kwargs):
     Outputs:
         result: dictionary containing final rgb and depth
     """
-    rays_o = rays_o.contiguous(); rays_d = rays_d.contiguous()
-    _, hits_t, _ = \
-        RayAABBIntersector.apply(rays_o, rays_d, model.center, model.half_size, 1)
-    hits_t[(hits_t[:, 0, 0]>=0)&(hits_t[:, 0, 0]<NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
-
-    if kwargs.get('test_time', False):
+    test_time=kwargs.get('test_time', False)
+    if test_time:
         render_func = __render_rays_test
     else:
         render_func = __render_rays_train
 
-    results = render_func(model, rays_o, rays_d, hits_t, **kwargs)
-    for k, v in results.items():
-        if kwargs.get('to_cpu', False):
-            v = v.cpu()
-            if kwargs.get('to_numpy', False):
-                v = v.numpy()
-        results[k] = v
-    return results
+    trunk_= kwargs.get('trunks')
+
+    if not test_time or trunk_ is None:
+        rays_o = rays_o.contiguous(); rays_d = rays_d.contiguous()
+        _, hits_t, _ = \
+            RayAABBIntersector.apply(rays_o, rays_d, model.center, model.half_size, 1)
+        hits_t[(hits_t[:, 0, 0]>=0)&(hits_t[:, 0, 0]<NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
+
+
+        result = render_func(model, rays_o, rays_d, hits_t, **kwargs)
+        for k, v in result.items():
+            if kwargs.get('to_cpu', False):
+                v = v.cpu()
+                if kwargs.get('to_numpy', False):
+                    v = v.numpy()
+            result[k] = v
+    else:
+        assert isinstance(trunk_,int)
+        # test, and trunks is not None
+        rays_o = rays_o.contiguous()
+        rays_d = rays_d.contiguous()
+
+        len_ = rays_o.shape[0]
+        result={}
+
+        for i in range(0,len_,trunk_):
+
+            start_=i
+            end_=min(i+trunk_,len_)
+            rays_o__=rays_o[start_:end_]
+            rays_d__=rays_d[start_:end_]
+            print(i)
+            _, hits_t, _ = \
+                RayAABBIntersector.apply(rays_o__, rays_d__, model.center, model.half_size, 1)
+            hits_t[(hits_t[:, 0, 0] >= 0) & (hits_t[:, 0, 0] < NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
+
+            rst = render_func(model, rays_o__, rays_d__, hits_t, **kwargs)
+
+            for key in rst.keys():
+                if result.get(key) is None:
+                    result[key] = []
+
+                tmp=rst.get(key)
+                if len(tmp.shape)>0:
+                    result[key] += [tmp]
+
+
+        for key in result.keys():
+            try:
+                result[key] = torch.cat(result[key], dim=0)
+            except:
+
+                assert len(result[key])==0
+
+
+        for k, v in result.items():
+            if kwargs.get('to_cpu', False):
+                v = v.cpu()
+                if kwargs.get('to_numpy', False):
+                    v = v.numpy()
+            result[k] = v
+
+    return result
 
 
 @torch.no_grad()
@@ -58,7 +109,6 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
     """
     exp_step_factor = kwargs.get('exp_step_factor', 0.)
     results = {}
-
     # output tensors to be filled in
     N_rays = len(rays_o)
     device = rays_o.device
