@@ -77,11 +77,13 @@ class ColmapDataset(BaseDataset):
         pts3d = read_points3d_binary(os.path.join(self.root_dir, 'sparse/0/points3D.bin'))
         pts3d = np.array([pts3d[k].xyz for k in pts3d]) # (N, 3)
 
+        visualize_poses(poses)
         self.poses, self.pts3d = center_poses(poses, pts3d)
 
         scale = np.linalg.norm(self.poses[..., 3], axis=-1).min()
         self.poses[..., 3] /= scale
         self.pts3d /= scale
+        visualize_poses(self.poses)
 
         self.rays = []
         if split == 'test_traj': # use precomputed test poses
@@ -177,7 +179,7 @@ class ColmapDataset(BaseDataset):
         self.rays = torch.stack(self.rays) # (N_images, hw, ?)
         self.poses = torch.FloatTensor(self.poses) # (N_images, 3, 4)
 
-visual_=False
+visual_=True
 
 #visualization from:
 #https://github.com/ashawkey/torch-ngp
