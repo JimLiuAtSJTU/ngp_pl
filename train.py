@@ -105,7 +105,6 @@ class NeRFSystem(LightningModule):
             poses[..., 3] += self.dT[batch['img_idxs']]
 
         rays_o, rays_d = get_rays(directions, poses)
-
         kwargs = {'test_time': split!='train',
                   'random_bg': self.hparams.random_bg}
         if self.hparams.scale > 0.5:
