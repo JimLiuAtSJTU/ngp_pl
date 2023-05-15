@@ -1,9 +1,16 @@
 import datetime
 
+
 import torch
 from torch import nn
 from opt import get_opts
 import os
+'''
+set visible devices before initializing tcnn module.
+to let run on 3090 GPU.
+'''
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 import glob
 import imageio
 import numpy as np
@@ -537,7 +544,8 @@ if __name__ == '__main__':
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = NeRFSystem(hparams)
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<128>"
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
