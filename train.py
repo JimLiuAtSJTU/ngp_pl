@@ -57,7 +57,7 @@ class NeRFSystem(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
 
-        self.warmup_steps = 1024
+        self.warmup_steps = 256
         self.update_interval = 16
 
         self.loss = NeRFLoss(lambda_distortion=self.hparams.distortion_loss_w)

@@ -29,13 +29,13 @@ class NGP(nn.Module):
             torch.zeros(self.cascades*self.grid_size**3//8, dtype=torch.uint8))
 
         # constants
-        L = 20; F = 2; log2_T = 20; N_min = 16
+        L = 18; F = 2; log2_T = 19; N_min = 16
         b = np.exp(np.log(2048*scale/N_min)/(L-1))
         print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
 
         self.xyz_encoder = \
             tcnn.NetworkWithInputEncoding(
-                n_input_dims=3, n_output_dims=48,
+                n_input_dims=3, n_output_dims=16,
                 encoding_config={
                     "otype": "Grid",
 	                "type": "Hash",
@@ -66,7 +66,7 @@ class NGP(nn.Module):
 
         self.rgb_net = \
             tcnn.Network(
-                n_input_dims=64, n_output_dims=3,
+                n_input_dims=32, n_output_dims=3,
                 network_config={
                     "otype": "FullyFusedMLP",
                     "activation": "ReLU",
@@ -113,6 +113,7 @@ class NGP(nn.Module):
 
         Inputs:
             log_radiances: (N, 3)
+
 
         Outputs:
             rgbs: (N, 3)
