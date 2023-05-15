@@ -28,8 +28,9 @@ class NeRFDataset(BaseDataset):
         assert isinstance(meta,dict)
 
         if 'w' in meta.keys():
-            w=int(meta['w'])
-            h=int(meta['h'])
+            # for n3dv should be in meta
+            w=int(meta['w']*self.downsample)
+            h=int(meta['h']*self.downsample)
         else:
             w = h = int(800*self.downsample)
 
@@ -53,7 +54,7 @@ class NeRFDataset(BaseDataset):
     def read_meta(self, split):
         rays = []
         poses = []
-
+        times = []
         if split == 'trainval':
             with open(os.path.join(self.root_dir, "transforms_train.json"), 'r') as f:
                 frames = json.load(f)["frames"]
@@ -64,9 +65,20 @@ class NeRFDataset(BaseDataset):
                 frames = json.load(f)["frames"]
 
         print(f'Loading {len(frames)} {split} images ...')
+        self.rays = []
+        self.poses = []
+        self.times =[]
+
+
+        if os.path.exists(os.path.join(self.root_dir,f'clean_data_{split}.pt')):
+            file_=torch.load(os.path.join(self.root_dir,f'clean_data_{split}.pt'))
+            self.rays,self.poses,self.times=file_[0],file_[1],file_[2]
+            print(f'successfully loaded pre-generated data')
+
+            return
         for frame in tqdm(frames):
             c2w = np.array(frame['transform_matrix'])[:3, :4]
-
+            time_t= frame['time']
             #print(np.linalg.cond(c2w))
             # determine scale
             if 'Jrender_Dataset' in self.root_dir:
@@ -84,9 +96,9 @@ class NeRFDataset(BaseDataset):
                 else:
                     pose_radius_scale = 1.5
             else:
-                #c2w[:, 1:3] *= -1 # [right up back] to [right down front]
+                c2w[:, 1:3] *= -1 # [right up back] to [right down front]
                 pose_radius_scale = 1.5
-            #c2w[:, 3] /= np.linalg.norm(c2w[:, 3])/pose_radius_scale
+            c2w[:, 3] /= np.linalg.norm(c2w[:, 3])/pose_radius_scale
 
             # add shift
             if 'Jrender_Dataset' in self.root_dir:
@@ -95,6 +107,7 @@ class NeRFDataset(BaseDataset):
                 elif scene=='Car':
                     c2w[0, 3] -= 0.7
             poses += [c2w]
+            times += [time_t]
 
             try:
 
@@ -108,11 +121,14 @@ class NeRFDataset(BaseDataset):
                 rays += [img]
             except:
                 warnings.warn('something wrong while reading image')
-        self.rays = []
-        self.poses = []
         '''
         use temporary variable to avoid memory leak
         '''
         if len(rays)>0:
             self.rays = torch.FloatTensor(np.stack(rays)) # (N_images, hw, ?)
         self.poses = torch.FloatTensor(poses) # (N_images, 3, 4)
+        self.times = torch.FloatTensor(times) # (N_images, 1)
+
+        data_list=[self.rays,self.poses,self.times]
+        torch.save(data_list,os.path.join(self.root_dir,f'clean_data_{split}.pt'))
+

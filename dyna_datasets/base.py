@@ -29,12 +29,19 @@ class BaseDataset(Dataset):
             # randomly select pixels
             pix_idxs = np.random.choice(self.img_wh[0]*self.img_wh[1], self.batch_size)
             rays = self.rays[img_idxs, pix_idxs]
+            # time stamp should match image stamp
+            times =self.times[img_idxs]
             sample = {'img_idxs': img_idxs, 'pix_idxs': pix_idxs,
+                      'times':times,
                       'rgb': rays[:, :3]}
             if self.rays.shape[-1] == 4: # HDR-NeRF data
                 sample['exposure'] = rays[:, 3:]
         else:
-            sample = {'pose': self.poses[idx], 'img_idxs': idx}
+            # time stamp should match image stamp
+
+            sample = {'pose': self.poses[idx], 'img_idxs': idx,
+                      'times':self.times[idx]
+                      }
             if len(self.rays)>0: # if ground truth available
                 rays = self.rays[idx]
                 sample['rgb'] = rays[:, :3]
@@ -42,6 +49,4 @@ class BaseDataset(Dataset):
                     sample['exposure'] = rays[0, 3] # same exposure for all rays
 
         return sample
-
-
 

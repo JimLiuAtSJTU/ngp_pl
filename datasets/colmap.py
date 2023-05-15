@@ -122,7 +122,7 @@ class ColmapDataset(BaseDataset):
                 else:
                     raise ValueError(f"split {split} is invalid for HDR-NeRF!")
         else:
-            # use every 8th image as test set
+            # n3dv use indx 0
             if split=='train':
                 img_paths = [x for i, x in enumerate(img_paths) if i!=0]
                 self.poses = np.array([x for i, x in enumerate(self.poses) if i!=0])
@@ -130,7 +130,10 @@ class ColmapDataset(BaseDataset):
                 img_paths = [x for i, x in enumerate(img_paths) if i==0]
                 self.poses = np.array([x for i, x in enumerate(self.poses) if i==0])
             '''
-                        if split=='train':
+            
+            # use every 8th image as test set
+
+            if split=='train':
                 img_paths = [x for i, x in enumerate(img_paths) if i%8!=0]
                 self.poses = np.array([x for i, x in enumerate(self.poses) if i%8!=0])
             elif split=='test':

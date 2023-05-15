@@ -84,9 +84,9 @@ class NeRFDataset(BaseDataset):
                 else:
                     pose_radius_scale = 1.5
             else:
-                #c2w[:, 1:3] *= -1 # [right up back] to [right down front]
+                c2w[:, 1:3] *= -1 # [right up back] to [right down front]
                 pose_radius_scale = 1.5
-            #c2w[:, 3] /= np.linalg.norm(c2w[:, 3])/pose_radius_scale
+            c2w[:, 3] /= np.linalg.norm(c2w[:, 3])/pose_radius_scale
 
             # add shift
             if 'Jrender_Dataset' in self.root_dir:
