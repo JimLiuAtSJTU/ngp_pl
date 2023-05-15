@@ -29,7 +29,7 @@ class NGP(nn.Module):
             torch.zeros(self.cascades*self.grid_size**3//8, dtype=torch.uint8))
 
         # constants
-        L = 20; F = 2; log2_T = 22; N_min = 16
+        L = 20; F = 2; log2_T = 20; N_min = 16
         b = np.exp(np.log(2048*scale/N_min)/(L-1))
         print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
 
@@ -176,6 +176,7 @@ class NGP(nn.Module):
             cells: list (of length self.cascades) of indices and coords
                    selected at each cascade
         """
+
         cells = []
         for c in range(self.cascades):
             # uniform cells
@@ -184,24 +185,25 @@ class NGP(nn.Module):
             indices1 = vren.morton3D(coords1).long()
             # occupied cells
             indices2 = torch.nonzero(self.density_grid[c]>density_threshold)[:, 0]
-            if len(indices2)>0:
+            if len(indices2) > 0:
                 rand_idx = torch.randint(len(indices2), (M,),
                                          device=self.density_grid.device)
                 indices2 = indices2[rand_idx]
-            coords2 = vren.morton3D_invert(indices2.int())
-            # concatenate
-            torch.cuda.empty_cache()
-            assert isinstance(indices1,torch.Tensor)
-            assert isinstance(indices2,torch.Tensor)
-            assert isinstance(coords1,torch.Tensor)
-            assert isinstance(coords2,torch.Tensor)
+                coords2 = vren.morton3D_invert(indices2.int())
+            else:
+                indices2 = None
+                coords2 = None
 
-            try:
+            # concatenate
+            # cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+            # torch.cuda.empty_cache()
+            # print(f'coords{coords1},{coords1.shape},{coords2},{coords2.shape}')
+            # print(f'indices{indices1},{indices1.shape},{indices2},{indices2.shape}')
+
+            if indices2 is not None:
                 cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
-            except RuntimeError:
-                print('error')
-                print(f'coords{coords1},{coords2}')
-                print(f'indices{indices1},{indices2}')
+            else:
+                cells += [(None, None)]
 
         return cells
 
@@ -247,10 +249,9 @@ class NGP(nn.Module):
                 valid_mask = (count>0)&(~too_near_to_any_cam)
                 self.density_grid[c, indices[i:i+chunk]] = \
                     torch.where(valid_mask, 0., -1.)
-
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
-        print(f'updating density grid')
+        print(f'updating density grid, warmup={warmup}')
         density_grid_tmp = torch.zeros_like(self.density_grid)
         if warmup: # during the first steps
             cells = self.get_all_cells()
@@ -259,7 +260,12 @@ class NGP(nn.Module):
                                                            density_threshold)
         # infer sigmas
         for c in range(self.cascades):
-            indices, coords = cells[c]
+            try:
+                indices, coords = cells[c]
+            except TypeError:
+                print(cells)
+            if indices is None and coords is None:
+                continue
             s = min(2**(c-1), self.scale)
             half_grid_size = s/self.grid_size
             xyzs_w = (coords/(self.grid_size-1)*2-1)*(s-half_grid_size)
@@ -280,6 +286,8 @@ class NGP(nn.Module):
 
         vren.packbits(self.density_grid, min(mean_density, density_threshold),
                       self.density_bitfield)
+
+
 
 
 class NGP_time(nn.Module):
@@ -415,6 +423,12 @@ class NGP_time(nn.Module):
             sigmas: (N)
             rgbs: (N, 3)
         """
+
+        t=kwargs.get('times')
+
+        print('success')
+        exit(0)
+
         sigmas, h = self.density(x, return_feat=True)
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
@@ -464,14 +478,31 @@ class NGP_time(nn.Module):
                 rand_idx = torch.randint(len(indices2), (M,),
                                          device=self.density_grid.device)
                 indices2 = indices2[rand_idx]
-            coords2 = vren.morton3D_invert(indices2.int())
+                coords2 = vren.morton3D_invert(indices2.int())
+            else:
+                indices2=None
+                coords2=None
+
             # concatenate
-            cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+            #cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+            #torch.cuda.empty_cache()
+            #print(f'coords{coords1},{coords1.shape},{coords2},{coords2.shape}')
+            #print(f'indices{indices1},{indices1.shape},{indices2},{indices2.shape}')
+
+            if indices2 is not None:
+                cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+            else:
+                cells += [(None, None)]
+
 
         return cells
 
+    '''
+    TODO:
+    the "poses" 5100 are kind of redundant. consider to optimize them.
+    '''
     @torch.no_grad()
-    def mark_invisible_cells(self, K, poses, img_wh, chunk=64 ** 3):
+    def mark_invisible_cells(self, K, poses, img_wh, chunk=16 ** 3):
         """
         mark the cells that aren't covered by the cameras with density -1
         only executed once before training starts
@@ -516,6 +547,8 @@ class NGP_time(nn.Module):
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
         density_grid_tmp = torch.zeros_like(self.density_grid)
+        print(f'updating density grid, warmup={warmup}')
+
         if warmup:  # during the first steps
             cells = self.get_all_cells()
         else:
@@ -524,6 +557,8 @@ class NGP_time(nn.Module):
         # infer sigmas
         for c in range(self.cascades):
             indices, coords = cells[c]
+            if indices is None and coords is None:
+                continue
             s = min(2 ** (c - 1), self.scale)
             half_grid_size = s / self.grid_size
             xyzs_w = (coords / (self.grid_size - 1) * 2 - 1) * (s - half_grid_size)

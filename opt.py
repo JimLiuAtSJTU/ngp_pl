@@ -12,11 +12,11 @@ def get_opts():
     parser.add_argument('--split', type=str, default='train',
                         choices=['train', 'trainval', 'trainvaltest'],
                         help='use which split to train')
-    parser.add_argument('--downsample', type=float, default=1,
+    parser.add_argument('--downsample', type=float, default=0.5,
                         help='downsample factor (<=1.0) for the images')
 
     # model parameters
-    parser.add_argument('--scale', type=float, default=30,
+    parser.add_argument('--scale', type=float, default=100,
                         help='scene scale (whole scene must lie in [-scale, scale]^3')
     parser.add_argument('--use_exposure', action='store_true', default=False,
                         help='whether to train in HDR-NeRF setting')
@@ -27,6 +27,8 @@ def get_opts():
                         0 to disable (default), to enable,
                         a good value is 1e-3 for real scene and 1e-2 for synthetic scene
                         ''')
+    parser.add_argument('--seed', type=int, default=1, #8192
+                        help='random seed')
 
     # training options
     parser.add_argument('--batch_size', type=int, default=8192, #8192
@@ -37,7 +39,7 @@ def get_opts():
                         all_images: uniformly from all pixels of ALL images
                         same_image: uniformly from all pixels of a SAME image
                         ''')
-    parser.add_argument('--num_epochs', type=int, default=3000,
+    parser.add_argument('--num_epochs', type=int, default=300, # 300
                         help='number of training epochs')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='number of gpus')
