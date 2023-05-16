@@ -28,17 +28,40 @@ class NGP_time(nn.Module):
         self.register_buffer('density_bitfield',
                              torch.zeros(self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
 
+        self.encoder_static=self.__get_hash_encoder(input_dims=3)
+        self.encoder_dynamic=self.__get_hash_encoder(input_dims=4)
+
+
+        self.dir_encoder = \
+            tcnn.Encoding(
+                n_input_dims=3,
+                encoding_config={
+                    "otype": "SphericalHarmonics",
+                    "degree": 4,
+                },
+            )
+
+
+        flow_dim=0
+        self.rgb_net_static = self.__get_fused_mlp(input_dims=32,output_dims=3)
+        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=32,output_dims=3 + 1 + flow_dim) # rho for another dim
+
+
+        if self.rgb_act == 'None':  # rgb_net output is log-radiance
+            raise NotImplementedError
+        print(f'time aware NGP model initialized')
+
+    def __get_hash_encoder(self, input_dims=3):
         # constants
         L = 16;
         F = 2;
         log2_T = 19;
         N_min = 16
-        b = np.exp(np.log(2048 * scale / N_min) / (L - 1))
-        print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
+        b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
+        #print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
 
-        self.xyz_encoder = \
-            tcnn.NetworkWithInputEncoding(
-                n_input_dims=3, n_output_dims=16,
+        return  tcnn.NetworkWithInputEncoding(
+                n_input_dims=input_dims, n_output_dims=16,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",
@@ -58,44 +81,81 @@ class NGP_time(nn.Module):
                 }
             )
 
-        self.dir_encoder = \
-            tcnn.Encoding(
-                n_input_dims=3,
-                encoding_config={
-                    "otype": "SphericalHarmonics",
-                    "degree": 4,
-                },
-            )
+    def __get_fused_mlp(self,input_dims=32,output_dims=3):
 
-        self.rgb_net = \
-            tcnn.Network(
-                n_input_dims=32, n_output_dims=3,
-                network_config={
-                    "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": self.rgb_act,
-                    "n_neurons": 64,
-                    "n_hidden_layers": 2,
-                }
-            )
+        return   tcnn.Network(
+            n_input_dims=input_dims, n_output_dims=output_dims,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": self.rgb_act,
+                "n_neurons": 64,
+                "n_hidden_layers": 2,
+            }
+        )
 
-        if self.rgb_act == 'None':  # rgb_net output is log-radiance
-            for i in range(3):  # independent tonemappers for r,g,b
-                tonemapper_net = \
-                    tcnn.Network(
-                        n_input_dims=1, n_output_dims=1,
-                        network_config={
-                            "otype": "FullyFusedMLP",
-                            "activation": "ReLU",
-                            "output_activation": "Sigmoid",
-                            "n_neurons": 64,
-                            "n_hidden_layers": 1,
-                        }
-                    )
-                setattr(self, f'tonemapper_net_{i}', tonemapper_net)
-        print(f'time aware NGP model initialized')
+    def static_branch(self,x):
+        pass
+        sigmas=0
+        rgbs=0
+        return sigmas,rgbs
+    def dynamic_branch(self,x,t):
+        pass
+        sigmas=0
+        rgbs=0
+        return sigmas,rgbs
 
-    def density(self, x,t, return_feat=False):
+    def blend_together(self,s_sigma,d_sigma,s_rgb,d_rgb,rho):
+        '''
+
+        SUDS blending.
+        #https://arxiv.org/abs/2303.14536
+        s_sigma,d_sigma: static, dynamic
+        s_rgb,d_rgb: static, dynamic
+        rho: shadow factor in [0,1]. consider using a sigmoid.
+        '''
+        sigma=s_sigma+d_sigma
+
+
+        eps=1e-6
+        w_static=s_sigma/torch.clamp(sigma,min=eps)
+        #print(f's_sigma{s_sigma}{s_sigma.shape}')
+        #print(f'w_static{w_static}{w_static.shape}')
+        #print(f's_rgb{s_rgb}{s_rgb.shape}')
+
+        #print(f'rho{rho,}{rho.shape}')
+
+
+        # unsqueeze
+        rgb=(w_static*(1-rho))[:,None]*s_rgb
+        #print(f'rgb,{rgb.shape}')
+        #print(f's_rgb,{s_rgb.shape}')
+
+        rgb = rgb +(1-w_static)[:,None]*d_rgb
+
+
+        return sigma,rgb
+
+
+
+
+
+
+
+
+
+
+
+
+    def __xyzt_network(self, x_coords, t):
+
+        yzt=torch.cat([x_coords[:,1:3],t],dim=-1)
+        xyt=torch.cat([x_coords[:,0:2],t],dim=-1)
+        zxt=torch.cat([x_coords[:,-1],x_coords[:,0],t],dim=-1)
+
+        pass
+
+    def static_density(self, x, return_feat=False):
         """
         Inputs:
             x: (N, 3) xyz in [-scale, scale]
@@ -105,33 +165,29 @@ class NGP_time(nn.Module):
             sigmas: (N)
         """
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
-        h = self.xyz_encoder(x)
+        h = self.encoder_static(x)
+
         sigmas = TruncExp.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
 
-    def log_radiance_to_rgb(self, log_radiances, **kwargs):
+    def dynamic_density(self, x, t=0, return_feat=False):
         """
-        Convert log-radiance to rgb as the setting in HDR-NeRF.
-        Called only when self.rgb_act == 'None' (with exposure)
-
         Inputs:
-            log_radiances: (N, 3)
+            x: (N, 3) xyz in [-scale, scale]
+            return_feat: whether to return intermediate feature
 
         Outputs:
-            rgbs: (N, 3)
+            sigmas: (N)
         """
-        if 'exposure' in kwargs:
-            log_exposure = torch.log(kwargs['exposure'])
-        else:  # unit exposure by default
-            log_exposure = 0
+        x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
+        x= torch.cat([x,t],dim=-1)
+        h = self.encoder_dynamic(x)
 
-        out = []
-        for i in range(3):
-            inp = log_radiances[:, i:i + 1] + log_exposure
-            out += [getattr(self, f'tonemapper_net_{i}')(inp)]
-        rgbs = torch.cat(out, 1)
-        return rgbs
+
+        sigmas = TruncExp.apply(h[:, 0])
+        if return_feat: return sigmas, h
+        return sigmas
 
     def forward(self, x, d, **kwargs):
         """
@@ -145,20 +201,26 @@ class NGP_time(nn.Module):
         """
 
         t=kwargs.get('times')
-
-
-        sigmas, h = self.density(x,t, return_feat=True)
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
-        rgbs = self.rgb_net(torch.cat([d, h], 1))
 
-        if self.rgb_act == 'None':  # rgbs is log-radiance
-            if kwargs.get('output_radiance', False):  # output HDR map
-                rgbs = TruncExp.apply(rgbs)
-            else:  # convert to LDR using tonemapper networks
-                rgbs = self.log_radiance_to_rgb(rgbs, **kwargs)
 
-        return sigmas, rgbs
+        sigma_static,h_static=self.static_density(x,return_feat=True)
+        rgb_static=self.rgb_net_static(torch.cat([d, h_static],1))
+
+        sigma_dynamic,h_dyna=self.dynamic_density(x,t,return_feat=True)
+        rgb_dynamic=self.rgb_net_dynamic(torch.cat([d, h_dyna],1))
+
+        return self.blend_together(s_sigma=sigma_dynamic,
+                                   d_sigma=sigma_dynamic,
+                                   s_rgb=rgb_static,
+                                   d_rgb=rgb_dynamic[:,:-1],
+                                   rho=rgb_dynamic[:,-1])
+
+
+
+
+
 
     @torch.no_grad()
     def get_all_cells(self):
@@ -278,7 +340,7 @@ class NGP_time(nn.Module):
             xyzs_w = (coords / (self.grid_size - 1) * 2 - 1) * (s - half_grid_size)
             # pick random position in the cell by adding noise in [-hgs, hgs]
             xyzs_w += (torch.rand_like(xyzs_w) * 2 - 1) * half_grid_size
-            density_grid_tmp[c, indices] = self.density(xyzs_w)
+            density_grid_tmp[c, indices] = self.static_density(xyzs_w)
 
         if erode:
             # My own logic. decay more the cells that are visible to few cameras

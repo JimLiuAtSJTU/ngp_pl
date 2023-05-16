@@ -47,16 +47,15 @@ class BaseDataset(Dataset):
                       'rgb': rgbs[:, :3]}
             #print(sample)
 
-            if self.rays.shape[-1] == 4: # HDR-NeRF data
-                sample['exposure'] = rgbs[:, 3:]
         else:
             # time stamp should match image stamp
 
             sample = {'pose': self.poses[idx], 'img_idxs': idx,
                       'times':self.times[idx]
                       }
-            if len(self.rays)>0: # if ground truth available
-                rgbs = self.rays[idx]
+            if len(self.rays_rgbs)>0: # if ground truth available
+                rgbs = self.rays_rgbs[idx]
+                print(f'rgbs{self.rays_rgbs},{self.rays_rgbs.shape}')
                 sample['rgb'] = rgbs[:, :3]
                 if rgbs.shape[1] == 4: # HDR-NeRF data
                     sample['exposure'] = rgbs[0, 3] # same exposure for all rays
