@@ -2,6 +2,7 @@ import concurrent.futures
 import gc
 import glob
 import os
+import time
 
 import cv2
 import numpy as np
@@ -329,13 +330,63 @@ class Neural3D_NDC_Dataset(Dataset):
             #N_cam, N_time, H_,W_, C = all_imgs.shape
             #N_rays=H_*W_
             #self.image_stride = (H,W)
-            N_cam, N_time, N_rays, C = all_imgs.shape ## N_CAM, T, H*W, C
+            N_cam, N_time, N_rays, C = all_imgs.shape # N_CAM, T, H*W, C
+            importances_=torch.zeros(N_cam, N_time, N_rays,1)
+            '''
+            IF IMPORTANCE should be calculated, may calculate it in the multi-processing 
+            '''
+            # use gpu to compute importance. hopefully it would be faster
+
+            t0=time.time()
+
+            sums=[]
+            device_='cpu' if torch.cuda.is_available() else "cpu"
+            for i in range(N_cam):
+                # importances for out-of mean value
+                current_video=all_imgs[i].to(device_)
+
+                average_=torch.mean(current_video,dim=0)
+
+                diff= torch.abs(average_-current_video)
+
+
+                importances_[i]= torch.sum(diff,dim=-1).unsqueeze(-1).to('cpu')
+                #sums.append(torch.sum(importances_[i]))
+
+            for i in range(N_cam):
+                # importances for difference between frames
+
+                current_video = all_imgs[i].to(device_)
+
+                frames=np.array(range(1,current_video.shape[0])).astype(int)
+
+
+                difference=torch.abs(current_video[frames] - current_video[frames-1]) # frames -1 , H,W,3
+
+
+                #pad the initial frame difference
+                importances_[i,1:] += torch.sum(difference, dim=-1).unsqueeze(-1).to('cpu')
+                importances_[i,0] += torch.sum(difference[0], dim=-1).unsqueeze(-1).to('cpu')
+
+                importances_[i] = importances_[i]/torch.sum(importances_[i])
+                #sums.append(torch.sum(importances_[i]))
+
+            t1=time.time()
+
+            print(f'importance calculated. time elapse={t1-t0}')
+
             self.image_stride = N_rays
             self.cam_number = N_cam
             self.time_number = N_time
-            self.all_rgbs = all_imgs
+            self.all_rgbs = all_imgs.view(N_cam,N_time*N_rays,C)
             self.all_times = all_times.view(N_cam, N_time, 1)
             self.all_rays = all_rays.reshape(N_cam, N_rays, 6)
+            self.all_importances=importances_.view(N_cam*N_time*N_rays,1)
+
+            # using pytorch to perform importance sampling seems to have some problems...
+            # consider change to numpy and use double precision.
+            distri = torch.distributions.Categorical(torch.squeeze(self.all_importances)/torch.sum(self.all_importances))
+            sample = distri.sample([8192])
             self.all_times = self.time_scale * (self.all_times * 2.0 - 1.0)
             self.global_mean_rgb = torch.mean(all_imgs, dim=1)
         else:

@@ -52,7 +52,8 @@ def get_train_dataset(cfgs_custom:dict,is_stack=False):
         'times':train_dataset.all_times, # N_CAM, time_frames, 1
         'K': train_dataset.K,
         'rays':train_dataset.all_rays,
-        'img_wh':train_dataset.img_wh
+        'img_wh':train_dataset.img_wh,
+        'importance': train_dataset.all_importances
     }
 
     print(f'train dataset')
