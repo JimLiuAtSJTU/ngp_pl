@@ -213,3 +213,46 @@ def create_spheric_poses(radius, mean_h, n_poses=120):
     for th in np.linspace(0, 2*np.pi, n_poses+1)[:-1]:
         spheric_poses += [spheric_pose(th, -np.pi/12, radius)]
     return np.stack(spheric_poses, 0)
+
+
+import warnings
+import trimesh
+
+visual_=True
+
+#visualization from:
+#https://github.com/ashawkey/torch-ngp
+
+def visualize_poses(poses, size=0.1):
+    # poses shoould be : [B, 4, 4]
+    size_=poses.shape[1]
+    if size_==3:
+        last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1))  # (N, 1, 4)
+        poses = np.concatenate([poses, last_row], axis=1)  # (N, 4, 4)
+
+    if not visual_:
+        warnings.warn('visualize is disabled.')
+        return
+    axes = trimesh.creation.axis(axis_length=4)
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
+
+    for pose in poses:
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    trimesh.Scene(objects).show()
+

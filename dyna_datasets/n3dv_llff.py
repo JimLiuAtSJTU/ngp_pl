@@ -6,7 +6,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 
-from .ray_utils import get_ray_directions
+from .ray_utils import get_ray_directions,visualize_poses
 from .color_utils import read_image
 
 from .base import BaseDataset
@@ -171,6 +171,9 @@ class N3DV_dataset_2(BaseDataset):
     def set_useful_data(self,useful_data):
         self.K=useful_data['K']
         self.poses=useful_data['poses']
+
+        visualize_poses(self.poses)
+
         #self.directions=useful_data['directions']
         self.times=useful_data['times']
         self.rays_rgbs=useful_data['rgb']
