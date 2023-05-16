@@ -172,7 +172,7 @@ class N3DV_dataset_2(BaseDataset):
         self.K=useful_data['K']
         self.poses=useful_data['poses']
 
-        visualize_poses(self.poses)
+        #visualize_poses(self.poses)
 
         #self.directions=useful_data['directions']
         self.times=useful_data['times']

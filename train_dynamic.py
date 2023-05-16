@@ -23,7 +23,7 @@ from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_m
 
 # models
 from kornia.utils.grid import create_meshgrid3d
-from models.networks import NGP,NGP_time
+from models.networks_dynamic import NGP_time
 from models.rendering import render, MAX_SAMPLES
 
 # optimizer, losses
