@@ -82,7 +82,7 @@ class ColmapDataset(BaseDataset):
         self.poses[..., 3] /= scale
         self.pts3d /= scale
 
-        self.rays = []
+        self.rays_rgbs = []
         if split == 'test_traj': # use precomputed test poses
             self.poses = create_spheric_poses(1.2, self.poses[:, 1, 3].mean())
             self.poses = torch.FloatTensor(self.poses)
@@ -168,7 +168,7 @@ class ColmapDataset(BaseDataset):
                 e = int(img_path.split('.')[0][-1])
                 buf += [e_dict[e]*torch.ones_like(img[:, :1])]
 
-            self.rays += [torch.cat(buf, 1)]
+            self.rays_rgbs += [torch.cat(buf, 1)]
 
-        self.rays = torch.stack(self.rays) # (N_images, hw, ?)
+        self.rays_rgbs = torch.stack(self.rays_rgbs) # (N_images, hw, ?)
         self.poses = torch.FloatTensor(self.poses) # (N_images, 3, 4)

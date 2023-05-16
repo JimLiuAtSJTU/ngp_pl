@@ -98,7 +98,7 @@ class NeRFSystem(LightningModule):
 
         poses = self.poses[batch['img_idxs']]
         directions = self.directions[batch['pix_idxs']]
-
+        print(f'dire {self.directions},{self.directions.shape}')
         if self.hparams.optimize_ext:
             dR = axisangle_to_R(self.dR[batch['img_idxs']])
             poses[..., :3] = dR @ poses[..., :3]

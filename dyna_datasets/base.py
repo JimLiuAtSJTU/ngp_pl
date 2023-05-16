@@ -1,7 +1,6 @@
 from torch.utils.data import Dataset
 import numpy as np
-
-
+import torch
 class BaseDataset(Dataset):
     """
     Define length and sampling method
@@ -16,26 +15,40 @@ class BaseDataset(Dataset):
 
     def __len__(self):
         if self.split.startswith('train'):
-            return len(self.rays)
+            return len(self.rays_rgbs)
         return len(self.poses)
 
     def __getitem__(self, idx):
         if self.split.startswith('train'):
+            '''
+            self.rays: image pixels 
+            '''
             # training pose is retrieved in train.py
             if self.ray_sampling_strategy == 'all_images': # randomly select images
-                img_idxs = np.random.choice(len(self.poses), self.batch_size)
+                cam_idxs = np.random.choice(len(self.poses), self.batch_size)
             elif self.ray_sampling_strategy == 'same_image': # randomly select ONE image
-                img_idxs = np.random.choice(len(self.poses), 1)[0]
+                cam_idxs = np.random.choice(len(self.poses), 1)[0]
+
+            # self.times is N_CAM, time_frames, 1
+            t_indices=np.random.choice((self.times.shape[1]), 1) # randomly select ONE Time stamp
+            times =self.times[cam_idxs,t_indices]
+
+            #print(f'times {times}')
+
             # randomly select pixels
             pix_idxs = np.random.choice(self.img_wh[0]*self.img_wh[1], self.batch_size)
-            rays = self.rays[img_idxs, pix_idxs]
-            # time stamp should match image stamp
-            times =self.times[img_idxs]
-            sample = {'img_idxs': img_idxs, 'pix_idxs': pix_idxs,
+            rgbs = self.rays_rgbs[cam_idxs,t_indices, pix_idxs]
+
+            #breakpoint()
+
+            #print(f'im {cam_idxs.shape},pix{pix_idxs.shape},times{times.shape},rgb{rgbs.shape}')
+            sample = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
                       'times':times,
-                      'rgb': rays[:, :3]}
+                      'rgb': rgbs[:, :3]}
+            #print(sample)
+
             if self.rays.shape[-1] == 4: # HDR-NeRF data
-                sample['exposure'] = rays[:, 3:]
+                sample['exposure'] = rgbs[:, 3:]
         else:
             # time stamp should match image stamp
 
@@ -43,10 +56,10 @@ class BaseDataset(Dataset):
                       'times':self.times[idx]
                       }
             if len(self.rays)>0: # if ground truth available
-                rays = self.rays[idx]
-                sample['rgb'] = rays[:, :3]
-                if rays.shape[1] == 4: # HDR-NeRF data
-                    sample['exposure'] = rays[0, 3] # same exposure for all rays
+                rgbs = self.rays[idx]
+                sample['rgb'] = rgbs[:, :3]
+                if rgbs.shape[1] == 4: # HDR-NeRF data
+                    sample['exposure'] = rgbs[0, 3] # same exposure for all rays
 
         return sample
 

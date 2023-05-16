@@ -188,9 +188,14 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
             rays_o, rays_d, hits_t[:, 0], model.density_bitfield,
             model.cascades, model.scale,
             exp_step_factor, model.grid_size, MAX_SAMPLES)
-
+    #print(f'rays_a,rays_a.shape',rays_a,rays_a.shape)
+    #print(kwargs)
     for k, v in kwargs.items(): # supply additional inputs, repeated per ray
         if isinstance(v, torch.Tensor):
+    #        print(f'key ={k},value={v}')
+    #        print(f'tmp v,{v},{v.shape}')
+    #        tmp=v[rays_a[:, 0]]
+
             kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
     sigmas, rgbs = model(xyzs, dirs, **kwargs)
 

@@ -10,9 +10,12 @@ from .ray_utils import get_ray_directions
 from .color_utils import read_image
 
 from .base import BaseDataset
+from .hexplane_dataloader import get_test_dataset,get_train_dataset
 
 
-class NeRFDataset(BaseDataset):
+val_indx_N3DV=0
+
+class N3DV_dataset(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
 
@@ -65,14 +68,14 @@ class NeRFDataset(BaseDataset):
                 frames = json.load(f)["frames"]
 
         print(f'Loading {len(frames)} {split} images ...')
-        self.rays_rgbs = []
+        self.rays = []
         self.poses = []
         self.times =[]
 
 
         if os.path.exists(os.path.join(self.root_dir,f'clean_data_{split}.pt')):
             file_=torch.load(os.path.join(self.root_dir,f'clean_data_{split}.pt'))
-            self.rays_rgbs,self.poses,self.times=file_[0],file_[1],file_[2]
+            self.rays,self.poses,self.times=file_[0],file_[1],file_[2]
             print(f'successfully loaded pre-generated data')
 
             return
@@ -125,10 +128,60 @@ class NeRFDataset(BaseDataset):
         use temporary variable to avoid memory leak
         '''
         if len(rays)>0:
-            self.rays_rgbs = torch.FloatTensor(np.stack(rays)) # (N_images, hw, ?)
+            self.rays = torch.FloatTensor(np.stack(rays)) # (N_images, hw, ?)
         self.poses = torch.FloatTensor(poses) # (N_images, 3, 4)
         self.times = torch.FloatTensor(times) # (N_images, 1)
 
-        data_list=[self.rays_rgbs, self.poses, self.times]
+        data_list=[self.rays,self.poses,self.times]
         torch.save(data_list,os.path.join(self.root_dir,f'clean_data_{split}.pt'))
+
+
+class N3DV_dataset_2(BaseDataset):
+    def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
+        super().__init__(root_dir, split, downsample)
+
+
+
+        print(f'N3DV_dataset_with_hexplane_dataloader, split={split}')
+        cfg={
+            'root_dir':root_dir,
+            'downsample':1/downsample, #hexplane different from ngp_pl
+            'time_scale':1,
+        }
+
+        file_=os.path.join(root_dir,f'useful_data_{split}.pt')
+
+        if os.path.exists(file_):
+            useful_data=torch.load(file_)
+        else:
+
+            if split=='train':
+                useful_data=get_train_dataset(cfg)
+            else:
+                useful_data=get_test_dataset(cfg)
+
+            torch.save(useful_data,file_)
+
+
+        self.set_useful_data(useful_data)
+
+
+
+
+    def set_useful_data(self,useful_data):
+        self.K=useful_data['K']
+        self.poses=useful_data['poses']
+        #self.directions=useful_data['directions']
+        self.times=useful_data['times']
+        self.rays_rgbs=useful_data['rgb']
+        self.rays=useful_data['rays']
+
+
+        self.img_wh=useful_data['img_wh']
+
+        h,w=self.img_wh #using ngp ray direction characteristics
+
+        self.directions = get_ray_directions(h, w, self.K)
+
+
 

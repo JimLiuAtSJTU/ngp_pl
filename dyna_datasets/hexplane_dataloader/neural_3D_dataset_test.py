@@ -2,6 +2,7 @@ import concurrent.futures
 import gc
 import glob
 import os
+import time
 
 import cv2
 import numpy as np
@@ -10,9 +11,14 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms as T
 
-from .ray_utils import get_ray_directions_blender, get_rays, ndc_rays_blender
+from ray_utils import (
+    get_ray_directions_blender,
+    get_rays,
+    ndc_rays_blender,
+)
 
 #https://github.com/Caoang327/HexPlane
+
 def normalize(v):
     """Normalize a vector."""
     return v / np.linalg.norm(v)
@@ -110,62 +116,7 @@ def render_path_spiral(c2w, up, rads, focal, zdelta, zrate, N_rots=2, N=120):
     return render_poses
 
 
-def process_video(video_data_save, video_path, img_wh, downsample, transform):
-    """
-    Load video_path data to video_data_save tensor.
-    """
-    video_frames = cv2.VideoCapture(video_path)
-    count = 0
-    while video_frames.isOpened():
-        ret, video_frame = video_frames.read()
-        if ret:
-            video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
-            video_frame = Image.fromarray(video_frame)
-            if downsample != 1.0:
-                img = video_frame.resize(img_wh, Image.LANCZOS)
-            img = transform(img)
-            video_data_save[count] = img.view(3, -1).permute(1, 0)
-            count += 1
-        else:
-            break
-    video_frames.release()
-    print(f"Video {video_path} processed.")
-    return None
-
-
-# define a function to process all videos
-def process_videos(videos, skip_index, img_wh, downsample, transform, num_workers=1):
-    """
-    A multi-threaded function to load all videos fastly and memory-efficiently.
-    To save memory, we pre-allocate a tensor to store all the images and spawn multi-threads to load the images into this tensor.
-    """
-    all_imgs = torch.zeros(len(videos) - 1, 300, img_wh[-1] * img_wh[-2], 3)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # start a thread for each video
-        current_index = 0
-        futures = []
-        for index, video_path in enumerate(videos):
-            # skip the video with skip_index (eval video)
-            if index == skip_index:
-                continue
-            else:
-                future = executor.submit(
-                    process_video,
-                    all_imgs[current_index],
-                    video_path,
-                    img_wh,
-                    downsample,
-                    transform,
-                )
-                futures.append(future)
-                current_index += 1
-    return all_imgs
-
-
 def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
-    """
-    Generate a set of poses using NeRF's spiral camera trajectory as validation poses.
-    """
     # center pose
     c2w = average_poses(c2ws_all)
 
@@ -185,6 +136,83 @@ def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
         c2w, up, rads, focal, zdelta, zrate=0.5, N=N_views
     )
     return np.stack(render_poses)
+
+
+# define a function to read and preprocess frames from a single video
+# video_frames = cv2.VideoCapture(video_path)
+# count = 0
+# all_frames = torch.zeros(300,  img_wh[-1] * img_wh[-2], 3)
+# while video_frames.isOpened():
+#     ret, video_frame = video_frames.read()
+#     if ret:
+#         video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+#         video_frame = Image.fromarray(video_frame)
+#         if downsample != 1.0:
+#             img = video_frame.resize(img_wh, Image.LANCZOS)
+#         else:
+#             img = video_frame
+#         img = transform(img)
+#         all_frames[count] = img.view(3, -1).permute(1, 0)
+#         count += 1
+#     else:
+#         break
+# return all_frames
+def process_video(vide_data_save, video_path, img_wh, downsample, transform):
+    video_frames = cv2.VideoCapture(video_path)
+    count = 0
+    while video_frames.isOpened():
+        ret, video_frame = video_frames.read()
+        if ret:
+            video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+            video_frame = Image.fromarray(video_frame)
+            if downsample != 1.0:
+                img = video_frame.resize(img_wh, Image.LANCZOS)
+            img = transform(img)
+            #print(img.shape)
+            vide_data_save[count] = img.permute(2,1,0)
+            count += 1
+        else:
+            break
+    video_frames.release()
+    print("done")
+    return None
+
+
+# define a function to process all videos
+# def process_videos(videos, img_wh, downsample, transform, num_workers=1):
+#     all_imgs = torch.zeros(len(videos)-1, 300, img_wh[-1] * img_wh[-2], 3)
+#     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+#         # start a thread for each video
+#         futures = []
+#         current_index = 0
+#         for video_path in videos[1:]:
+#             future = executor.submit(process_video, video_path, img_wh, downsample, transform)
+#             futures.append(future)
+#             all_imgs[current_index] = future.result()
+#             print(f"done {current_index}")
+#             current_index += 1
+#     return all_imgs
+
+
+# define a function to process all videos
+def process_videos(videos, img_wh, downsample, transform, num_workers=1):
+    all_imgs = torch.zeros(len(videos) - 1, 300, img_wh[-2], img_wh[-1], 3) # remain image feature
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # start a thread for each video
+        current_index = 0
+        futures = []
+        for index, video_path in enumerate(videos[1:]):
+            future = executor.submit(
+                process_video,
+                all_imgs[current_index],
+                video_path,
+                img_wh,
+                downsample,
+                transform,
+            )
+            futures.append(future)
+            current_index += 1
+    return all_imgs
 
 
 class Neural3D_NDC_Dataset(Dataset):
@@ -271,18 +299,27 @@ class Neural3D_NDC_Dataset(Dataset):
         )  # (H, W, 3)
 
         if self.split == "train":
-            # Loading all videos from this dataset requires around 50GB memory, and stack them into a tensor requires another 50GB.
-            # To save memory, we allocate a large tensor and load videos into it instead of using torch.stack/cat operations.
+            all_imgs = torch.zeros(
+                len(videos) - 1, 300, self.img_wh[-1] * self.img_wh[-2], 3
+            )
             all_times = []
             all_rays = []
-            count = 300
-
-            for index in range(0, len(videos)):
-                if (
-                    index == self.eval_index
-                ):  # the eval_index(0 as default) is the evaluation one. We skip evaluation cameras.
-                    continue
-
+            for index in range(1, len(videos)):  # the cam00 is the evaluation one
+                video_frames = cv2.VideoCapture(videos[index])
+                # for video_frame  in video_frames:
+                count = 0
+                while video_frames.isOpened():
+                    ret, video_frame = video_frames.read()
+                    if ret:
+                        video_frame = cv2.cvtColor(video_frame, cv2.COLOR_BGR2RGB)
+                        video_frame = Image.fromarray(video_frame)
+                        if self.downsample != 1.0:
+                            img = video_frame.resize(self.img_wh, Image.LANCZOS)
+                        img = self.transform(img)
+                        all_imgs[index - 1, count] = img.view(3, -1).permute(1, 0)
+                        count += 1
+                    else:
+                        break
                 video_times = torch.tensor([i / (count - 1) for i in range(count)])
                 all_times += [video_times]
 
@@ -293,19 +330,8 @@ class Neural3D_NDC_Dataset(Dataset):
                 all_rays += [torch.cat([rays_o, rays_d], 1)]
                 print(f"video {index} is loaded")
                 gc.collect()
-
-            # load all video images
-            all_imgs = process_videos(
-                videos,
-                self.eval_index,
-                self.img_wh,
-                self.downsample,
-                self.transform,
-                num_workers=8,
-            )
             all_times = torch.stack(all_times, 0)
             all_rays = torch.stack(all_rays, 0)
-            breakpoint()
             print("stack performed")
             N_cam, N_time, N_rays, C = all_imgs.shape
             self.image_stride = N_rays
@@ -427,3 +453,32 @@ class Neural3D_NDC_Dataset(Dataset):
             rays = torch.cat([rays_o, rays_d], 1)  # (h*w, 6)
             rays_all.append(rays)
         return rays_all, torch.FloatTensor(val_times)
+
+
+if __name__ == "__main__":
+    videos = glob.glob(
+        os.path.join(
+            "../../data/n3dv/coffee_martini", "cam*.mp4"
+        )
+    )
+    videos = sorted(videos)
+    downsample = 4.0
+    img_wh = (
+        int(1024 / downsample),
+        int(768 / downsample),
+    )
+
+    img_wh = (
+        int(2704 / downsample),
+        int(2028 / downsample),
+    )
+
+    downsample = 2704 / img_wh[0]
+    transform = T.ToTensor()
+    start_time = time.time()
+    all_imgs = process_videos(videos, img_wh, downsample, transform, num_workers=8)
+
+    print(f'all imgs {all_imgs},{all_imgs.shape}')
+    end_time = time.time()
+    print("Time taken: ", end_time - start_time)
+    #breakpoint()

@@ -296,7 +296,6 @@ class NGP_time(nn.Module):
         super().__init__()
 
         self.rgb_act = rgb_act
-
         # scene bounding box
         self.scale = scale
         self.register_buffer('center', torch.zeros(1, 3))
@@ -375,8 +374,9 @@ class NGP_time(nn.Module):
                         }
                     )
                 setattr(self, f'tonemapper_net_{i}', tonemapper_net)
+        print(f'time aware NGP model initialized')
 
-    def density(self, x, return_feat=False):
+    def density(self, x,t, return_feat=False):
         """
         Inputs:
             x: (N, 3) xyz in [-scale, scale]
@@ -427,10 +427,8 @@ class NGP_time(nn.Module):
 
         t=kwargs.get('times')
 
-        print('success')
-        exit(0)
 
-        sigmas, h = self.density(x, return_feat=True)
+        sigmas, h = self.density(x,t, return_feat=True)
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
         rgbs = self.rgb_net(torch.cat([d, h], 1))

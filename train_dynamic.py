@@ -9,11 +9,17 @@ import imageio
 import numpy as np
 import cv2
 from einops import rearrange
+'''
+set visible devices before initializing tcnn module.
+to let run on 3090 GPU.
+'''
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 
 # data
 from torch.utils.data import DataLoader
 from dyna_datasets import dataset_dict
-from dyna_datasets.ray_utils import axisangle_to_R, get_rays
+from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_method
 
 # models
 from kornia.utils.grid import create_meshgrid3d
@@ -92,12 +98,17 @@ class DNeRFSystem(LightningModule):
         directions = self.directions[batch['pix_idxs']]
         times=batch['times']
         if self.hparams.optimize_ext:
+            raise NotImplementedError
             dR = axisangle_to_R(self.dR[batch['img_idxs']])
             poses[..., :3] = dR @ poses[..., :3]
             poses[..., 3] += self.dT[batch['img_idxs']]
-
+        #print(f'poses {self.poses},{self.poses.shape}'
+        #      f'directions,{self.directions},{self.directions.shape}')
         rays_o, rays_d = get_rays(directions, poses)
-
+        #print(f'rays_o{rays_o},{rays_o.shape}'
+        #      f'rays_d{rays_d},{rays_d.shape}'
+        #      f'')
+        #rays_all=batch['rays']
         kwargs = {'test_time': split!='train',
                   'times':times,
                   'random_bg': self.hparams.random_bg}
