@@ -122,9 +122,9 @@ def process_video(video_data_save, video_path, img_wh, downsample, transform):
             video_frame = Image.fromarray(video_frame)
             if downsample != 1.0:
                 img = video_frame.resize(img_wh, Image.LANCZOS)
-            img = transform(img)
+            img = transform(img) # C, H, W
             #video_data_save[count] = img.permute(2, 1, 0) #if you need to locate pixel
-            video_data_save[count] = img.view(3, -1).permute(1, 0)
+            video_data_save[count] = img.view(3, -1).permute(1, 0) # H*W, C=3
             count += 1
         else:
             break
@@ -140,7 +140,7 @@ def process_videos(videos, skip_index, img_wh, downsample, transform, num_worker
     To save memory, we pre-allocate a tensor to store all the images and spawn multi-threads to load the images into this tensor.
     """
     #all_imgs = torch.zeros(len(videos) - 1, 300, img_wh[0],img_wh[1], 3) #if you need to locate pixel
-    all_imgs = torch.zeros(len(videos) - 1, 300, img_wh[-1] * img_wh[-2], 3)
+    all_imgs = torch.zeros(len(videos) - 1, 300, img_wh[-1] * img_wh[-2], 3) # N_CAM, T, H*W, C
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         # start a thread for each video
         current_index = 0
@@ -329,7 +329,7 @@ class Neural3D_NDC_Dataset(Dataset):
             #N_cam, N_time, H_,W_, C = all_imgs.shape
             #N_rays=H_*W_
             #self.image_stride = (H,W)
-            N_cam, N_time, N_rays, C = all_imgs.shape
+            N_cam, N_time, N_rays, C = all_imgs.shape ## N_CAM, T, H*W, C
             self.image_stride = N_rays
             self.cam_number = N_cam
             self.time_number = N_time
@@ -349,12 +349,12 @@ class Neural3D_NDC_Dataset(Dataset):
                     video_frame = Image.fromarray(video_frame)
                     if self.downsample != 1.0:
                         img = video_frame.resize(self.img_wh, Image.LANCZOS)
-                    img = self.transform(img)
+                    img = self.transform(img) # H,W,3
                     #video_imgs += [img.permute(2, 1, 0)] #if you need to locate pixel
-                    video_imgs += [img.view(3, -1).permute(1, 0)]
+                    video_imgs += [img.view(3, -1).permute(1, 0)] # H*W, 3
                 else:
                     break
-            video_imgs = torch.stack(video_imgs, 0)
+            video_imgs = torch.stack(video_imgs, 0) #
             video_times = torch.tensor(
                 [i / (len(video_imgs) - 1) for i in range(len(video_imgs))]
             )
@@ -375,9 +375,9 @@ class Neural3D_NDC_Dataset(Dataset):
             self.all_rgbs = video_imgs.view(-1, N_rays, 3)
             self.all_rays = all_rays
             self.all_times = video_times
-            self.all_rgbs = self.all_rgbs.view(
-                -1, *self.img_wh[::-1], 3
-            )  # (len(self.meta['frames]),h,w,3)
+            #self.all_rgbs = self.all_rgbs.view(
+            #    -1, *self.img_wh[::-1], 3
+            #)  # (len(self.meta['frames]),h,w,3)
             self.all_times = self.time_scale * (self.all_times * 2.0 - 1.0)
 
     def __len__(self):

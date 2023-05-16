@@ -134,7 +134,7 @@ class DNeRFSystem(LightningModule):
         rays_o, rays_d = get_rays(directions, poses)
 
         kwargs = {'test_time': split!='train',
-                  'times': times,
+                  'times': times.to(self.device),
                   'random_bg': self.hparams.random_bg}
         kwargs['trunks'] = 32768*32
 
@@ -246,9 +246,14 @@ class DNeRFSystem(LightningModule):
 
 
         results = self(batch, split='test')
+        print(f'validation results{results}')
+
+        print(f"results['rgb'] {results['rgb'].shape}")
 
         logs = {}
         # compute each metric per image
+
+        assert results['rgb'].shape==rgb_gt.shape
         self.val_psnr(results['rgb'], rgb_gt)
         logs['psnr'] = self.val_psnr.compute()
         self.val_psnr.reset()

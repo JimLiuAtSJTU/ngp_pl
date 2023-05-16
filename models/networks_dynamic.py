@@ -201,6 +201,19 @@ class NGP_time(nn.Module):
         """
 
         t=kwargs.get('times')
+        try:
+            assert t.shape[0] == x.shape[0]
+        except AssertionError:
+            #print(f'x,t',x,t)
+            #print(f'x,t',x.shape,t.shape)
+
+            assert t.shape[0] == 1
+
+            t=t.expand(x.shape[0],1)
+        #except IndexError:
+        #    assert isinstance(t,torch.Tensor)
+        #    print(f't,{t},{type(t)}')
+
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
 
