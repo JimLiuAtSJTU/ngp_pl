@@ -237,8 +237,7 @@ class DNeRFSystem(LightningModule):
     def validation_step(self, batch, batch_nb):
         rgb_gt = batch['rgb']
 
-        img_sizes=rgb_gt
-        print(f'img size {img_sizes.shape}')
+        #print(f'rgb_gt {rgb_gt.shape}')
 
 
         trunk= 16384
@@ -246,9 +245,9 @@ class DNeRFSystem(LightningModule):
 
 
         results = self(batch, split='test')
-        print(f'validation results{results}')
+        #print(f'validation results{results}')
 
-        print(f"results['rgb'] {results['rgb'].shape}")
+        #print(f"results['rgb'] {results['rgb'].shape}")
 
         logs = {}
         # compute each metric per image

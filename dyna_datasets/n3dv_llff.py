@@ -140,8 +140,10 @@ class N3DV_dataset_2(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
 
+        self.use_importance_sampling= kwargs.get('use_importance_sampling',True)
 
-
+        self.ray_sampling_strategy=None # to be set by train_dynamic.py
+        self.batch_size=None # to be set by ...
         print(f'N3DV_dataset_with_hexplane_dataloader, split={split}')
         cfg={
             'root_dir':root_dir,
@@ -162,9 +164,9 @@ class N3DV_dataset_2(BaseDataset):
 
             torch.save(useful_data,file_)
 
+        self.importance=None
 
         self.set_useful_data(useful_data)
-
 
 
 
@@ -180,8 +182,9 @@ class N3DV_dataset_2(BaseDataset):
         self.rays=useful_data['rays']
 
         self.img_wh=useful_data['img_wh']
-        if self.split=='train':
-            self.importance=useful_data['importance']
+        if self.split=='train' and self.use_importance_sampling:
+            self.importance=useful_data['importance'].numpy().astype(np.float64) # convert to double precision
+
         h,w=self.img_wh #using ngp ray direction characteristics
         '''
         rays is NOT used.
@@ -202,10 +205,85 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=self.times.shape[1]
 
             assert self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
-            assert self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1)
+            assert self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1) or self.importance is None
 
         else:
             self.N_time=len(self.times)
             assert self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
 
+    def __getitem__(self, idx):
+
+        if self.split.startswith('train'):
+            '''
+            self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+            self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1)
+            self.times: [N_time] tensor
+            
+            '''
+            # training pose is retrieved in train.py
+            if self.ray_sampling_strategy == 'all_time': # randomly select across time
+
+                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+                time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
+
+
+            else:
+                assert self.ray_sampling_strategy == 'same_time' # randomly select ONE time stamp
+                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+
+                time_indices = np.random.choice(self.N_time,1)[0]
+                #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
+
+            times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
+            ray_indices=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
+
+            rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
+
+
+            #print(f'times {times}')
+
+            # randomly select pixels
+            '''
+            pixel indices is to get directions.
+            '''
+            pix_idxs = ray_indices
+
+
+            #breakpoint()
+
+            #print(f'im {cam_idxs.shape},pix{pix_idxs.shape},times{times.shape},rgb{rgbs.shape}')
+            sample = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
+                      'times':times,
+                      'rgb': rgbs[:, :3]}
+            #print(sample)
+
+        else:
+
+
+            '''
+            bugs. need to stack N_CAM and N_time together...
+            '''
+            # test time
+            '''
+            self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
+            '''
+
+
+            sample = {'pose': self.poses[0], 'img_idxs': idx,
+                      'times':torch.Tensor([self.times[idx]])
+                      }
+            if len(self.rays_rgbs)>0: # if ground truth available
+                rgbs = self.rays_rgbs.view(-1,self.H*self.W, 3)[idx,:,:] # stack the different cams and different times
+                #print(f'rgbs{self.rays_rgbs},{self.rays_rgbs.shape}')
+                sample['rgb'] = rgbs
+
+        return sample
+
+    #def __len__(self):
+    #    if self.split.startswith('train'):
+        #    return self.N_cam*self.N_time* self.W * self.H
+        #return self.N_time*self.N_cam
+    def __len__(self):
+        return self.N_time

@@ -19,6 +19,13 @@ class BaseDataset(Dataset):
         return max(self.times.shape)
 
     def __getitem__(self, idx):
+
+        raise NotImplementedError
+        '''
+        deprecated.
+        should be implemented in the children class n3dv_llff
+        
+        '''
         if self.split.startswith('train'):
             '''
             self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
