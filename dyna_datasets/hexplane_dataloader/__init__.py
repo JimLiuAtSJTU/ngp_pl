@@ -46,17 +46,23 @@ def get_train_dataset(cfgs_custom:dict,is_stack=False):
     print(f'time elapse seconds:{t1-t0}')
 
     useful_data={
-        'rgb':train_dataset.all_rgbs,
-        'poses':train_dataset.poses, # N_CAM,
+        'rgb':train_dataset.all_rgbs, # N_CAM, N_TIME*H*W,3
+        'importance': train_dataset.all_importances , # N_CAM, N_TIME*H*W, 1
+        'poses':train_dataset.poses, # N_CAM, 3,4
         #'directions':train_dataset.directions,
-        'times':train_dataset.all_times, # N_CAM, time_frames, 1
+        'times':train_dataset.all_times, #  time_frames 1D = N_TIMES
         'K': train_dataset.K,
-        'rays':train_dataset.all_rays,
+        'rays':train_dataset.all_rays, # N_CAM, H*W,3
         'img_wh':train_dataset.img_wh,
-        'importance': train_dataset.all_importances
     }
 
     print(f'train dataset')
+    for k,value in useful_data.items():
+        try:
+            print(f'key={k},value=,{value.shape}')
+
+        except AttributeError:
+            pass
     return useful_data
 
 
@@ -93,17 +99,25 @@ def get_test_dataset(cfgs_custom:dict, is_stack=True):
     print(f'test dataset')
     useful_data = {
         #'rgb': test_dataset.all_rgbs,
-        'poses': test_dataset.poses, # N_CAM, 3,4
+        'poses': test_dataset.poses, # N_CAM=1 (for test), 3,4
         #'directions': test_dataset.directions,
-        'times': test_dataset.all_times, # N_CAM, time_frames, 1
-        'rays': test_dataset.all_rays,
+        'times': test_dataset.all_times, #  time_frames 1d
+        'rays': test_dataset.all_rays, # N_CAM=1, H*W, 6
         'img_wh': test_dataset.img_wh,
 
-        'K': test_dataset.K,
+        'K': test_dataset.K,# 3,3
     }
 
     if len(test_dataset.all_rgbs)>0:
-        useful_data['rgb'] =test_dataset.all_rgbs
+        useful_data['rgb'] =test_dataset.all_rgbs # N_CAM=1, N_time, H*W, 3
+    print(f'test dataset')
+    for k,value in useful_data.items():
+        try:
+            print(f'key={k},value=,{value.shape}')
+
+        except AttributeError:
+            pass
+    return useful_data
 
 
     return useful_data

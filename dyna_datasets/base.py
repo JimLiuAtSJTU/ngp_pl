@@ -21,7 +21,8 @@ class BaseDataset(Dataset):
     def __getitem__(self, idx):
         if self.split.startswith('train'):
             '''
-            self.rays: image pixels 
+            self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+            self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1)
             '''
             # training pose is retrieved in train.py
             if self.ray_sampling_strategy == 'all_images': # randomly select images
@@ -49,7 +50,10 @@ class BaseDataset(Dataset):
 
         else:
             # time stamp should match image stamp
+            '''
+            self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
+            '''
             sample = {'pose': self.poses[idx], 'img_idxs': idx,
                       'times':torch.Tensor([self.times[idx]])
                       }

@@ -378,18 +378,20 @@ class Neural3D_NDC_Dataset(Dataset):
             self.image_stride = N_rays
             self.cam_number = N_cam
             self.time_number = N_time
-            self.all_rgbs = all_imgs.view(N_cam,N_time*N_rays,C)
+            self.all_rgbs = all_imgs.view(N_cam,N_time*N_rays,C)#
             self.all_times = all_times.view(N_cam, N_time, 1)
             self.all_rays = all_rays.reshape(N_cam, N_rays, 6)
-            self.all_importances=importances_.view(N_cam*N_time*N_rays,1)
+            self.all_importances=importances_.view(N_cam,N_time*N_rays,1)#
 
             # using pytorch to perform importance sampling seems to have some problems...
             # consider change to numpy and use double precision.
-            distri = torch.distributions.Categorical(torch.squeeze(self.all_importances)/torch.sum(self.all_importances))
-            sample = distri.sample([8192])
+            # distri = torch.distributions.Categorical(torch.squeeze(self.all_importances)/torch.sum(self.all_importances))
+            # sample = distri.sample([8192])
             self.all_times = self.time_scale * (self.all_times * 2.0 - 1.0)
             self.global_mean_rgb = torch.mean(all_imgs, dim=1)
         else:
+            assert isinstance(self.eval_index,int) #only one eval index
+            N_cam=1
             index = self.eval_index
             video_imgs = []
             video_frames = cv2.VideoCapture(videos[index])
@@ -423,8 +425,8 @@ class Neural3D_NDC_Dataset(Dataset):
             self.image_stride = N_rays
             self.time_number = N_time
             #self.all_rgbs = video_imgs #if you need to locate pixel
-            self.all_rgbs = video_imgs.view(-1, N_rays, 3)
-            self.all_rays = all_rays
+            self.all_rgbs = video_imgs.view(N_cam,-1, N_rays, 3) # N_val=1, N_time, N_rays, 3
+            self.all_rays = all_rays.view(N_cam,N_rays,6)
             self.all_times = video_times
             #self.all_rgbs = self.all_rgbs.view(
             #    -1, *self.img_wh[::-1], 3

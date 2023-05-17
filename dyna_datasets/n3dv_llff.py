@@ -179,12 +179,33 @@ class N3DV_dataset_2(BaseDataset):
         self.rays_rgbs=useful_data['rgb']
         self.rays=useful_data['rays']
 
-
         self.img_wh=useful_data['img_wh']
-
+        if self.split=='train':
+            self.importance=useful_data['importance']
         h,w=self.img_wh #using ngp ray direction characteristics
-
+        '''
+        rays is NOT used.
+        instead, use h,w,K to get directions for ngp_pl repository.
+        '''
         self.directions = get_ray_directions(h, w, self.K)
 
+        self.check_dimensions()
+    def check_dimensions(self):
+        self.N_cam=self.poses.shape[0]
+        assert self.poses.shape==(self.N_cam,3,4)
+
+        self.H,self.W=self.img_wh[0],self.img_wh[1]
+
+        assert self.rays.shape==(self.N_cam,self.W*self.H,6)
+
+        if self.split=='train':
+            self.N_time=self.times.shape[1]
+
+            assert self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+            assert self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1)
+
+        else:
+            self.N_time=len(self.times)
+            assert self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
 
