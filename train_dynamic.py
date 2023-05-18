@@ -24,6 +24,8 @@ from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_m
 # models
 from kornia.utils.grid import create_meshgrid3d
 from models.networks_dynamic import NGP_time
+from models.networks import NGP
+
 from models.rendering import render, MAX_SAMPLES
 
 # optimizer, losses
@@ -75,7 +77,7 @@ class DNeRFSystem(LightningModule):
                 p.requires_grad = False
 
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
-        self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
+        self.model = NGP(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
         self.model.register_buffer('density_grid',
             torch.zeros(self.model.cascades, G**3))
@@ -325,7 +327,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=hparams.num_epochs//2,
+                      check_val_every_n_epoch=max(1,hparams.num_epochs//5),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

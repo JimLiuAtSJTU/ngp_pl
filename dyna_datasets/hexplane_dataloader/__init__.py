@@ -49,7 +49,7 @@ def get_train_dataset(cfgs_custom:dict,is_stack=False):
         'rgb':train_dataset.all_rgbs, # N_CAM, N_TIME*H*W,3
         'importance': train_dataset.all_importances , # N_CAM, N_TIME*H*W, 1
         'poses':train_dataset.poses, # N_CAM, 3,4
-        #'directions':train_dataset.directions,
+        'directions':train_dataset.directions,
         'times':train_dataset.all_times, #  time_frames 1D = N_TIMES
         'K': train_dataset.K,
         'rays':train_dataset.all_rays, # N_CAM, H*W,3
@@ -100,7 +100,7 @@ def get_test_dataset(cfgs_custom:dict, is_stack=True):
     useful_data = {
         #'rgb': test_dataset.all_rgbs,
         'poses': test_dataset.poses, # N_CAM=1 (for test), 3,4
-        #'directions': test_dataset.directions,
+        'directions': test_dataset.directions,
         'times': test_dataset.all_times, #  time_frames 1d
         'rays': test_dataset.all_rays, # N_CAM=1, H*W, 6
         'img_wh': test_dataset.img_wh,

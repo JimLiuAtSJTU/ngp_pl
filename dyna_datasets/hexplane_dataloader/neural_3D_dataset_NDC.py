@@ -39,16 +39,16 @@ def average_poses(poses):
     center = poses[..., 3].mean(0)  # (3)
 
     # 2. Compute the z axis
-    z = normalize(poses[..., 2].mean(0))  # (3)
+    z = normalize(poses[..., 2].mean(0)) # (3)
 
     # 3. Compute axis y' (no need to normalize as it's not the final output)
-    y_ = poses[..., 1].mean(0)  # (3)
+    y_ = poses[..., 1].mean(0) # (3)
 
     # 4. Compute the x axis
-    x = normalize(np.cross(z, y_))  # (3)
+    x = normalize(np.cross(y_, z)) # (3)
 
     # 5. Compute the y axis (as z and x are normalized, y is already of norm 1)
-    y = np.cross(x, z)  # (3)
+    y = np.cross(z, x) # (3)
 
     pose_avg = np.stack([x, y, z, center], 1)  # (3, 4)
 
@@ -247,11 +247,26 @@ class Neural3D_NDC_Dataset(Dataset):
         videos = glob.glob(os.path.join(self.root_dir, "cam*.mp4"))
         videos = sorted(videos)
         assert len(videos) == poses_arr.shape[0]
+        #visualize_poses(poses)
 
         H, W, focal = poses[0, :, -1]
         focal = focal / self.downsample
         self.focal = [focal, focal]
-        poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
+        #poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
+        #visualize_poses(poses)
+
+        # torch-ngp
+        # inversion of this: https://github.com/Fyusion/LLFF/blob/c6e27b1ee59cb18f054ccb0f87a90214dbe70482/llff/poses/pose_utils.py#L51
+        '''
+        IMPORTANT!
+        DIFFERENT!!!
+        '''
+
+        poses = np.concatenate([poses[..., 1:2], poses[..., 0:1], -poses[..., 2:3], poses[..., 3:4]], -1)  # (N, 3, 4)
+
+        #visualize_poses(poses)
+
+
         poses, pose_avg = center_poses(
             poses, self.blender2opencv
         )  # Re-center poses so that the average is near the center.
@@ -262,7 +277,7 @@ class Neural3D_NDC_Dataset(Dataset):
             scale_factor  # rescale nearest plane so that it is at z = 4/3.
         )
         poses[..., 3] /= scale_factor
-
+        #visualize_poses(poses)
         # Sample N_views poses for validation - NeRF-like camera trajectory.
         N_views = 120
 
@@ -506,3 +521,43 @@ class Neural3D_NDC_Dataset(Dataset):
             rays = torch.cat([rays_o, rays_d], 1)  # (h*w, 6)
             rays_all.append(rays)
         return rays_all, torch.FloatTensor(val_times)
+
+import trimesh
+import warnings
+
+visual_=True
+
+def visualize_poses(poses, size=0.1):
+    # poses shoould be : [B, 4, 4]
+    size_=poses.shape[1]
+    if size_==3:
+        last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1))  # (N, 1, 4)
+        poses = np.concatenate([poses, last_row], axis=1)  # (N, 4, 4)
+
+    if not visual_:
+        warnings.warn('visualize is disabled.')
+        return
+    axes = trimesh.creation.axis(axis_length=4)
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
+
+    for i,pose in enumerate(poses):
+        print(f'pose {i},={pose}')
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(segs)
+
+    trimesh.Scene(objects).show()
+

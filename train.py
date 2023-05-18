@@ -98,7 +98,7 @@ class NeRFSystem(LightningModule):
 
         poses = self.poses[batch['img_idxs']]
         directions = self.directions[batch['pix_idxs']]
-        print(f'dire {self.directions},{self.directions.shape}')
+        #print(f'dire {self.directions},{self.directions.shape}')
         if self.hparams.optimize_ext:
             dR = axisangle_to_R(self.dR[batch['img_idxs']])
             poses[..., :3] = dR @ poses[..., :3]
@@ -231,7 +231,7 @@ class NeRFSystem(LightningModule):
         rgb_gt = batch['rgb']
 
         img_sizes=rgb_gt
-        print(f'img size {img_sizes.shape}')
+        #print(f'img size {img_sizes.shape}')
 
 
         trunk= 16384
@@ -465,7 +465,7 @@ class DNeRFSystem(LightningModule):
         rgb_gt = batch['rgb']
 
         img_sizes=rgb_gt
-        print(f'img size {img_sizes.shape}')
+        #print(f'img size {img_sizes.shape}')
 
 
         trunk= 16384
@@ -558,7 +558,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=hparams.num_epochs//5,
+                      check_val_every_n_epoch=5,
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

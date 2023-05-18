@@ -15,6 +15,11 @@ from .hexplane_dataloader import get_test_dataset,get_train_dataset
 
 val_indx_N3DV=0
 
+'''
+poses bounds.npy
+'''
+#https://github.com/Fyusion/LLFF
+
 class N3DV_dataset(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
@@ -58,6 +63,18 @@ class N3DV_dataset(BaseDataset):
         rays = []
         poses = []
         times = []
+
+
+        poses_arr = np.load(os.path.join(self.root_dir, "poses_bounds.npy"))
+        poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
+        poses = poses[:,:,:-1]
+
+
+
+        visualize_poses(poses)
+        self.near_fars = poses_arr[:, -2:]
+
+
         if split == 'trainval':
             with open(os.path.join(self.root_dir, "transforms_train.json"), 'r') as f:
                 frames = json.load(f)["frames"]
@@ -174,22 +191,33 @@ class N3DV_dataset_2(BaseDataset):
         self.K=useful_data['K']
         self.poses=useful_data['poses']
 
-        #visualize_poses(self.poses)
+        visualize_poses(self.poses)
 
-        #self.directions=useful_data['directions']
         self.times=useful_data['times']
         self.rays_rgbs=useful_data['rgb']
         self.rays=useful_data['rays']
 
         self.img_wh=useful_data['img_wh']
         if self.split=='train' and self.use_importance_sampling:
-            self.importance=useful_data['importance'].numpy().astype(np.float64) # convert to double precision
+            self.importance=useful_data['importance']#.numpy().astype(np.float64) # convert to double precision
 
         h,w=self.img_wh #using ngp ray direction characteristics
         '''
-        rays is NOT used.
-        instead, use h,w,K to get directions for ngp_pl repository.
+        The ngp_pl repository have different means of calculating ray directions from nerf_pl.
+         which leads to incorrect modeling and get ill-posed results.
+         
+        
+        a naive idea is to use the nerf_pl get_ray_directions(H,W,F) function
+        
+        however, we should not do that, 
+        
+        because this ngp_pl repository uses poses to mark invisible cells... 
+        
+        a possible solution is to change "n3dv" dataset pose format into ngp_pl pose format
+        
         '''
+        #self.directions=useful_data['directions']
+
         self.directions = get_ray_directions(h, w, self.K)
 
         self.check_dimensions()
@@ -227,15 +255,31 @@ class N3DV_dataset_2(BaseDataset):
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
                 time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
 
-
             else:
                 assert self.ray_sampling_strategy == 'same_time' # randomly select ONE time stamp
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
 
                 time_indices = np.random.choice(self.N_time,1)[0]
                 #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
+            static_=True
+            if static_:
+                time_indices = np.zeros_like(time_indices)
+
 
             times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
+
+            # importance sampling seems to comsume huge amount of memory...
+            # consider implement it in a memory-efficient way
+            #sampling_probs=self.importance.view(self.N_cam,self.N_time,self.H*self.W,1)
+            #sampling_probs=sampling_probs[:,time_indices]
+            #sampling_probs=sampling_probs[:]
+
+            #sampling_probs=sampling_probs.numpy().astype(np.float64)
+
+            #ray_intices=np.zeros(self.batch_size,dtype=int)
+            #for i in range(self.batch_size):
+            #    ray_intices[i]=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
 
             ray_indices=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
 

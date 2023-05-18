@@ -134,8 +134,12 @@ class NGP_time(nn.Module):
         rgb = rgb +(1-w_static)[:,None]*d_rgb
 
 
-        return sigma,rgb
-
+        #return sigma,rgb
+        '''
+        
+        return static for debug!
+        '''
+        return s_sigma,s_rgb
 
 
 

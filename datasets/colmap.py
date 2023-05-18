@@ -80,7 +80,15 @@ class ColmapDataset(BaseDataset):
         visualize_poses(poses)
         self.poses, self.pts3d = center_poses(poses, pts3d)
 
+        #self.poses = center_poses(poses)
+
+
+
         scale = np.linalg.norm(self.poses[..., 3], axis=-1).min()
+
+        visualize_poses(self.poses)
+
+
         self.poses[..., 3] /= scale
         self.pts3d /= scale
         visualize_poses(self.poses)

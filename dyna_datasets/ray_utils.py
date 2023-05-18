@@ -259,7 +259,8 @@ def visualize_poses(poses, size=0.1):
     box.colors = np.array([[128, 128, 128]] * len(box.entities))
     objects = [axes, box]
 
-    for pose in poses:
+    for i,pose in enumerate(poses):
+        print(f'pose {i},={pose}')
         # a camera is visualized with 8 line segments.
         pos = pose[:3, 3]
         a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
