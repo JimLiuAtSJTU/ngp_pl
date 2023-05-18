@@ -270,14 +270,25 @@ class Neural3D_NDC_Dataset(Dataset):
         poses, pose_avg = center_poses(
             poses, self.blender2opencv
         )  # Re-center poses so that the average is near the center.
-
+        near_original0=np.linalg.norm(poses[..., 3], axis=-1).max()
         near_original = self.near_fars.min()
-        scale_factor = near_original * 0.75
+
+
+        '''
+        see
+        https://github.com/bmild/nerf/issues/34
+        for more details.
+        
+        correcting the poses is not easy.
+        '''
+
+        #near_original = self.near_fars[:,0].max()
+        scale_factor = near_original # * 0.75
         self.near_fars /= (
             scale_factor  # rescale nearest plane so that it is at z = 4/3.
         )
         poses[..., 3] /= scale_factor
-        #visualize_poses(poses)
+        visualize_poses(poses)
         # Sample N_views poses for validation - NeRF-like camera trajectory.
         N_views = 120
 

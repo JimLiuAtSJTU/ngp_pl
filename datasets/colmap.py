@@ -77,16 +77,15 @@ class ColmapDataset(BaseDataset):
         pts3d = read_points3d_binary(os.path.join(self.root_dir, 'sparse/0/points3D.bin'))
         pts3d = np.array([pts3d[k].xyz for k in pts3d]) # (N, 3)
 
-        visualize_poses(poses)
+        #visualize_poses(poses)
         self.poses, self.pts3d = center_poses(poses, pts3d)
 
         #self.poses = center_poses(poses)
 
+        #visualize_poses(self.poses)
 
-
-        scale = np.linalg.norm(self.poses[..., 3], axis=-1).min()
-
-        visualize_poses(self.poses)
+        scale_factor=0.75
+        scale = scale_factor * np.linalg.norm(self.poses[..., 3], axis=-1).min() # *scale_factor
 
 
         self.poses[..., 3] /= scale

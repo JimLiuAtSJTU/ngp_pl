@@ -140,6 +140,8 @@ class NGP(nn.Module):
             sigmas: (N)
             rgbs: (N, 3)
         """
+
+        #print(f'')
         sigmas, h = self.density(x, return_feat=True)
         d = d/torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d+1)/2)
@@ -252,7 +254,7 @@ class NGP(nn.Module):
                     torch.where(valid_mask, 0., -1.)
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
-        print(f'updating density grid, warmup={warmup}')
+        #print(f'updating density grid, warmup={warmup}')
         density_grid_tmp = torch.zeros_like(self.density_grid)
         if warmup: # during the first steps
             cells = self.get_all_cells()

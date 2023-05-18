@@ -48,8 +48,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
 
 from utils import slim_ckpt, load_ckpt
-
-import warnings; warnings.filterwarnings("ignore")
+from dyna_datasets.ray_utils import visualize_poses
+#import warnings; warnings.filterwarnings("ignore")
 
 
 def depth2img(depth):
@@ -159,6 +159,7 @@ class DNeRFSystem(LightningModule):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
         self.register_buffer('poses', self.train_dataset.poses.to(self.device))
+        visualize_poses(self.poses.to('cpu').numpy())
 
         if self.hparams.optimize_ext:
             N = len(self.train_dataset.poses)

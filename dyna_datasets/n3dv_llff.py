@@ -13,8 +13,10 @@ from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 
 
-val_indx_N3DV=0
+STATIC_ONLY=True
 
+val_indx_N3DV=0
+regenerate=True
 '''
 poses bounds.npy
 '''
@@ -170,7 +172,7 @@ class N3DV_dataset_2(BaseDataset):
 
         file_=os.path.join(root_dir,f'useful_data_{split}.pt')
 
-        if os.path.exists(file_):
+        if os.path.exists(file_) and not regenerate:
             useful_data=torch.load(file_)
         else:
 
@@ -191,7 +193,7 @@ class N3DV_dataset_2(BaseDataset):
         self.K=useful_data['K']
         self.poses=useful_data['poses']
 
-        visualize_poses(self.poses)
+        #visualize_poses(self.poses)
 
         self.times=useful_data['times']
         self.rays_rgbs=useful_data['rgb']
@@ -239,6 +241,17 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=len(self.times)
             assert self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
+        if STATIC_ONLY:
+
+
+            self.importance=None
+            self.rays_rgbs=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
+            self.rays_rgbs=self.rays_rgbs[:,0:1,:,:]
+            if self.split=='train':
+                self.times = self.times[:, 0:1, :]
+            else:
+                self.times=self.times[0:1]
+            self.N_time=1
 
     def __getitem__(self, idx):
 
@@ -330,4 +343,7 @@ class N3DV_dataset_2(BaseDataset):
         #    return self.N_cam*self.N_time* self.W * self.H
         #return self.N_time*self.N_cam
     def __len__(self):
+        if STATIC_ONLY:
+            return self.poses.shape[0]
+
         return self.N_time

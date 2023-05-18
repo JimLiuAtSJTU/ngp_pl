@@ -60,7 +60,7 @@ def render(model, rays_o, rays_d, **kwargs):
             end_=min(i+trunk_,len_)
             rays_o__=rays_o[start_:end_]
             rays_d__=rays_d[start_:end_]
-            print(i)
+            #print(i)
             _, hits_t, _ = \
                 RayAABBIntersector.apply(rays_o__, rays_d__, model.center, model.half_size, 1)
             hits_t[(hits_t[:, 0, 0] >= 0) & (hits_t[:, 0, 0] < NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE

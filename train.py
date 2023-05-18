@@ -47,6 +47,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
 
 from utils import slim_ckpt, load_ckpt
+from dyna_datasets.ray_utils import visualize_poses
 
 import warnings; warnings.filterwarnings("ignore")
 
@@ -150,6 +151,7 @@ class NeRFSystem(LightningModule):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
         self.register_buffer('poses', self.train_dataset.poses.to(self.device))
+        visualize_poses(self.poses.to('cpu').numpy())
 
         if self.hparams.optimize_ext:
             N = len(self.train_dataset.poses)
@@ -431,7 +433,8 @@ class DNeRFSystem(LightningModule):
         if self.global_step%self.update_interval == 0:
             self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
                                            warmup=self.global_step<self.warmup_steps,
-                                           erode=self.hparams.dataset_name=='colmap')
+                                          # erode=self.hparams.dataset_name=='colmap'
+                                           )
 
         results = self(batch, split='train')
         loss_d = self.loss(results, batch)
@@ -558,7 +561,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=5,
+                      check_val_every_n_epoch=50,
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,
