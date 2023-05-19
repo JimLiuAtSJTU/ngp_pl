@@ -23,6 +23,7 @@ class ColmapDataset(BaseDataset):
             self.read_meta(split, **kwargs)
 
     def read_intrinsics(self):
+        self.downsample=1/(2704/1024)
         # Step 1: read and scale intrinsics (same for all images)
         camdata = read_cameras_binary(os.path.join(self.root_dir, 'sparse/0/cameras.bin'))
         h = int(camdata[1].height*self.downsample)

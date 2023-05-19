@@ -1,4 +1,5 @@
 import concurrent.futures
+import copy
 import gc
 import glob
 import os
@@ -194,7 +195,7 @@ class Neural3D_NDC_Dataset(Dataset):
         self,
         datadir,
         split="train",
-        downsample=1.0,
+        downsample=(1/(2704/2028)),
         is_stack=True,
         cal_fine_bbox=False,
         N_vis=-1,
@@ -208,8 +209,11 @@ class Neural3D_NDC_Dataset(Dataset):
         sphere_scale=1.0,
     ):
         self.img_wh = (
-            int(1024 / downsample),
-            int(768 / downsample),
+        #    int(1024 / downsample),
+        #    int(768 / downsample),
+            int(2704 / downsample),
+            int(2028 / downsample),
+
         )  # According to the neural 3D paper, the default resolution is 1024x768
         self.root_dir = datadir
         self.split = split
@@ -250,8 +254,20 @@ class Neural3D_NDC_Dataset(Dataset):
         #visualize_poses(poses)
 
         H, W, focal = poses[0, :, -1]
-        focal = focal / self.downsample
-        self.focal = [focal, focal]
+
+
+
+        assert self.img_wh[0]*H == self.img_wh[1]* W # self.img_wh: w,h = W,H
+
+        '''
+        scale focal
+        '''
+
+
+
+        self.focal = np.array([focal, focal])
+        self.focal *= self.img_wh[0]/W
+
         #poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
         #visualize_poses(poses)
 
@@ -264,7 +280,7 @@ class Neural3D_NDC_Dataset(Dataset):
 
         poses = np.concatenate([poses[..., 1:2], poses[..., 0:1], -poses[..., 2:3], poses[..., 3:4]], -1)  # (N, 3, 4)
 
-        #visualize_poses(poses)
+        visualize_poses(poses)
 
 
         poses, pose_avg = center_poses(
@@ -283,11 +299,50 @@ class Neural3D_NDC_Dataset(Dataset):
         '''
 
         #near_original = self.near_fars[:,0].max()
-        scale_factor = near_original # * 0.75
+        scale_factor = near_original * 2
         self.near_fars /= (
             scale_factor  # rescale nearest plane so that it is at z = 4/3.
         )
+
+        '''
+        
+        
+        
+        should change the poses coordinates.
+        s.t. the most of the scene objects in 'centered' bouding box.
+        
+        consider: 
+        1. choose a direction vector  d=(dx,dy,dz), s.t. sum <d, d_i> is the least
+        actually select the mean dx,dy,dz is ok.
+        
+        2. choose a distance, and set the offset, and translate the poses.
+        
+        find a point P on the direction, s.t. the summed  P-d_i  distance  
+        
+        is minimised. just by computing and selecting argmin is OK.
+        
+        consider using the visualization function for help.
+        
+        '''
         poses[..., 3] /= scale_factor
+
+
+        '''
+        the given LLFF poses is not working. the cameras are centered at (0,0,0).
+        this will lead to some problems for ngp-ray-marching.
+        
+        need to correct poses, s.t. the scene is centered at (0,0,0)
+        
+        simply by setting the camera ray intersection to (0,0,0) is not enough
+        
+        because camera ray intersection may not be the center.
+        
+        '''
+        poses=correct_poses(poses,distance_factor=1)
+
+
+
+
         visualize_poses(poses)
         # Sample N_views poses for validation - NeRF-like camera trajectory.
         N_views = 120
@@ -304,8 +359,8 @@ class Neural3D_NDC_Dataset(Dataset):
         else:
             self.poses=torch.FloatTensor(poses[val_indx])
 
-        K = np.float32([[focal, 0, W/2],
-                        [0, focal, H/2],
+        K = np.float32([[self.focal[0], 0, W/2],
+                        [0, self.focal[1], H/2],
                         [0,  0,   1]])
         #print(np.linalg.cond(K))
         self.K = torch.FloatTensor(K)
@@ -536,7 +591,7 @@ class Neural3D_NDC_Dataset(Dataset):
 import trimesh
 import warnings
 
-visual_=True
+visual_=False
 
 def visualize_poses(poses, size=0.1):
     # poses shoould be : [B, 4, 4]
@@ -572,3 +627,134 @@ def visualize_poses(poses, size=0.1):
 
     trimesh.Scene(objects).show()
 
+
+def correct_poses(poses,size=0.1,distance_factor=0):
+    # poses shoould be : [B, 4, 4]
+    size_=poses.shape[1]
+    if size_==3:
+        last_row = np.tile(np.array([0, 0, 0, 1]), (len(poses), 1, 1))  # (N, 1, 4)
+        poses = np.concatenate([poses, last_row], axis=1)  # (N, 4, 4)
+
+    axes = trimesh.creation.axis(axis_length=4)
+    box = trimesh.primitives.Box(extents=(2, 2, 2)).as_outline()
+    box.colors = np.array([[128, 128, 128]] * len(box.entities))
+    objects = [axes, box]
+
+
+
+
+
+    #dir_sum=np.sum(directions,axis=0)
+    for i,pose in enumerate(poses):
+        print(f'pose {i},={pose}')
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+
+        #dir_sum = dir_sum + dir
+        #directions[i]=dir
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(copy.deepcopy(segs))
+
+    if visual_:trimesh.Scene(objects).show()
+
+    '''
+    mean directions
+    '''
+    directions=np.zeros_like((poses[:,:3,3]))
+
+    dir_sum=np.zeros(3)
+
+    for i,pose in enumerate(poses):
+        print(f'pose {i},={pose}')
+        # a camera is visualized with 8 line segments.
+        pos = pose[:3, 3]
+        a = pos + size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        b = pos - size * pose[:3, 0] + size * pose[:3, 1] + size * pose[:3, 2]
+        c = pos - size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+        d = pos + size * pose[:3, 0] - size * pose[:3, 1] + size * pose[:3, 2]
+
+        dir = (a + b + c + d) / 4 - pos
+        dir = dir / (np.linalg.norm(dir) + 1e-8)
+
+        tmp_dir=copy.deepcopy(dir)
+        dir_sum = dir_sum + tmp_dir
+        directions[i]= tmp_dir
+        o = pos + dir * 3
+
+        segs = np.array([[pos, a], [pos, b], [pos, c], [pos, d], [a, b], [b, c], [c, d], [d, a], [pos, o]])
+        segs = trimesh.load_path(segs)
+        objects.append(copy.deepcopy(segs))
+
+    if visual_:trimesh.Scene(objects).show()
+
+
+
+    mean_dir = dir_sum / (np.linalg.norm(dir_sum) + 1e-8)
+
+    mean_offset = np.mean(poses[:,:3,3],axis=0)
+
+
+
+    '''
+    we need to search for the mi
+    '''
+
+    origin=np.array([0,0,0])
+
+    visual_mean_dir=np.array([[mean_offset,mean_offset+mean_dir*6]])
+
+    visual_mean_dir = trimesh.load_path(visual_mean_dir)
+    objects.append(copy.deepcopy(visual_mean_dir))
+
+    if visual_:trimesh.Scene(objects).show()
+
+
+    points_num=5000
+
+    coord_poins=np.linspace(-30,30,points_num,endpoint=False)[:,None] * mean_dir
+
+    lengths_=np.zeros(points_num)
+    for i in range(points_num):
+        point_=coord_poins[i]
+
+        #compute projection length
+        #https://stackoverflow.com/questions/39840030/distance-between-point-and-a-line-from-two-points
+
+        p1=poses[:,:3,3]
+        p2=p1+directions
+        p3=point_
+
+        d = np.cross(p2 - p1, p3-p1) / np.linalg.norm(p2-p1,axis=-1 )[:,None] #
+        projection_length= sum( abs( np.linalg.norm(d,axis=-1)))
+
+        lengths_[i]=projection_length
+
+    indx=np.argmin(lengths_)
+
+    desired_offset=coord_poins[indx]
+
+    # poses is concatenated to N,4,4
+    # return should be N,3,4
+    corrected_poses=poses[:,:3,:]
+
+    corrected_poses[:, :3, 3] -= desired_offset*(1+distance_factor)  # N, 3, 4
+
+
+
+    #visual_mean_dir = trimesh.load_path(visual_mean_dir)
+    #objects.append(visual_mean_dir)
+
+    #trimesh.Scene(objects).show()
+
+
+    return corrected_poses
