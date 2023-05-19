@@ -16,7 +16,7 @@ from .hexplane_dataloader import get_test_dataset,get_train_dataset
 STATIC_ONLY=True
 
 val_indx_N3DV=0
-regenerate=True
+regenerate=False
 '''
 poses bounds.npy
 '''
