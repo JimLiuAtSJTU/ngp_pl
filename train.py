@@ -201,6 +201,7 @@ class NeRFSystem(LightningModule):
                                            warmup=self.global_step<self.warmup_steps,
                                            erode=self.hparams.dataset_name=='colmap')
 
+
         results = self(batch, split='train')
         loss_d = self.loss(results, batch)
         if self.hparams.use_exposure:
