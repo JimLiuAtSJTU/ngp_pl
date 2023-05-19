@@ -16,7 +16,7 @@ from .hexplane_dataloader import get_test_dataset,get_train_dataset
 STATIC_ONLY=True
 
 val_indx_N3DV=0
-regenerate=True
+regenerate=False
 '''
 poses bounds.npy
 '''
@@ -203,7 +203,8 @@ class N3DV_dataset_2(BaseDataset):
         if self.split=='train' and self.use_importance_sampling:
             self.importance=useful_data['importance']#.numpy().astype(np.float64) # convert to double precision
 
-        h,w=self.img_wh #using ngp ray direction characteristics
+        w,h=self.img_wh #using ngp ray direction characteristics
+        assert w>h
         '''
         The ngp_pl repository have different means of calculating ray directions from nerf_pl.
          which leads to incorrect modeling and get ill-posed results.
@@ -227,7 +228,8 @@ class N3DV_dataset_2(BaseDataset):
         self.N_cam=self.poses.shape[0]
         assert self.poses.shape==(self.N_cam,3,4)
 
-        self.H,self.W=self.img_wh[0],self.img_wh[1]
+        self.W,self.H=self.img_wh[0],self.img_wh[1]
+        assert self.W>self.H
 
         assert self.rays.shape==(self.N_cam,self.W*self.H,6)
 

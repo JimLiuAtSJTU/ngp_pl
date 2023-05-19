@@ -207,7 +207,9 @@ class DNeRFSystem(LightningModule):
         if self.global_step%self.update_interval == 0:
             self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
                                            warmup=self.global_step<self.warmup_steps,
-                                           erode=self.hparams.dataset_name=='colmap')
+                                           erode=True,
+                      #                     erode=self.hparams.dataset_name=='colmap'
+                                           )
 
         results = self(batch, split='train')
         loss_d = self.loss(results, batch)
@@ -328,7 +330,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=max(1,hparams.num_epochs//5),
+                      check_val_every_n_epoch=min(50,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

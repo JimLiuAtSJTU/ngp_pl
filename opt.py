@@ -1,5 +1,9 @@
 import argparse
 
+
+
+default_downsample=1/(2704/1024)/2
+
 def get_opts():
     parser = argparse.ArgumentParser()
 
@@ -12,7 +16,7 @@ def get_opts():
     parser.add_argument('--split', type=str, default='train',
                         choices=['train', 'trainval', 'trainvaltest'],
                         help='use which split to train')
-    parser.add_argument('--downsample', type=float, default=0.5,
+    parser.add_argument('--downsample', type=float, default=default_downsample,
                         help='downsample factor (<=1.0) for the images')
 
     # model parameters
@@ -22,12 +26,12 @@ def get_opts():
                         help='whether to train in HDR-NeRF setting')
 
     # loss parameters
-    parser.add_argument('--distortion_loss_w', type=float, default=0,
+    parser.add_argument('--distortion_loss_w', type=float, default=1e-3,
                         help='''weight of distortion loss (see losses.py),
                         0 to disable (default), to enable,
                         a good value is 1e-3 for real scene and 1e-2 for synthetic scene
                         ''')
-    parser.add_argument('--seed', type=int, default=1, #8192
+    parser.add_argument('--seed', type=int, default=1337, #8192
                         help='random seed')
 
     # training options
