@@ -23,7 +23,7 @@ from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_m
 
 # models
 from kornia.utils.grid import create_meshgrid3d
-from models.networks_dynamic import NGP_time
+from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
 
 from models.rendering import render, MAX_SAMPLES
@@ -52,6 +52,8 @@ from dyna_datasets.ray_utils import visualize_poses
 #import warnings; warnings.filterwarnings("ignore")
 
 
+visualize_poses_flag=False
+
 def depth2img(depth):
     depth = (depth-depth.min())/(depth.max()-depth.min())
     depth_img = cv2.applyColorMap((depth*255).astype(np.uint8),
@@ -77,7 +79,7 @@ class DNeRFSystem(LightningModule):
                 p.requires_grad = False
 
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
-        self.model = NGP(scale=self.hparams.scale, rgb_act=rgb_act)
+        self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
         self.model.register_buffer('density_grid',
             torch.zeros(self.model.cascades, G**3))
@@ -159,7 +161,8 @@ class DNeRFSystem(LightningModule):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
         self.register_buffer('poses', self.train_dataset.poses.to(self.device))
-        visualize_poses(self.poses.to('cpu').numpy())
+        if visualize_poses_flag:
+            visualize_poses(self.poses.to('cpu').numpy())
 
         if self.hparams.optimize_ext:
             N = len(self.train_dataset.poses)
@@ -307,7 +310,8 @@ class DNeRFSystem(LightningModule):
 
 
 if __name__ == '__main__':
-
+    device_=torch.cuda.get_device_name(0)
+    #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)
 
     t0=datetime.datetime.now()
@@ -320,7 +324,7 @@ if __name__ == '__main__':
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
-                              every_n_epochs=1,
+                              every_n_epochs=max(1,hparams.num_epochs//50),
                               save_on_train_epoch_end=True,
                               save_top_k=-1)
     callbacks = [ckpt_cb, TQDMProgressBar(refresh_rate=1)]
@@ -330,7 +334,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=min(50,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=min(25,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

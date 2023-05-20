@@ -266,22 +266,32 @@ class N3DV_dataset_2(BaseDataset):
             '''
             # training pose is retrieved in train.py
             if self.ray_sampling_strategy == 'all_time': # randomly select across time
-
+                '''
+                the rendering module is focusd on "ray" instead of "3d point"
+                we only need to keep that every ray matches its time stamp. 
+                '''
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
                 time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
+                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
             else:
                 assert self.ray_sampling_strategy == 'same_time' # randomly select ONE time stamp
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
 
-                time_indices = np.random.choice(self.N_time,1)[0]
+                time_indices = np.random.choice(self.N_time,1)
+                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
                 #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
-            static_=True
-            if static_:
-                time_indices = np.zeros_like(time_indices)
+
+            if STATIC_ONLY:
+                '''
+                only have one time stamp. the index is zero.
+                Does not mean the time value is zero!
+                '''
+                time_indices = np.zeros_like(time_indices) #should be zero-indices!
+                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
 
-            times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
 
             # importance sampling seems to comsume huge amount of memory...
@@ -335,6 +345,8 @@ class N3DV_dataset_2(BaseDataset):
                       }
             if len(self.rays_rgbs)>0: # if ground truth available
                 rgbs = self.rays_rgbs.view(-1,self.H*self.W, 3)[idx,:,:] # stack the different cams and different times
+                #sample['times']= torch.ones_like(rgbs)*self.times[idx]
+
                 #print(f'rgbs{self.rays_rgbs},{self.rays_rgbs.shape}')
                 sample['rgb'] = rgbs
 
