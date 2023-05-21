@@ -172,8 +172,9 @@ class NGP_4D(nn.Module):
                 rgbs = TruncExp.apply(rgbs)
             else:  # convert to LDR using tonemapper networks
                 rgbs = self.log_radiance_to_rgb(rgbs, **kwargs)
-
-        return sigmas, rgbs
+        extra={
+        }
+        return sigmas, rgbs,extra
 
     @torch.no_grad()
     def get_all_cells(self):
@@ -441,7 +442,7 @@ class NGP_time(nn.Module):
         
         return static for debug!
         '''
-        return s_sigma,s_rgb
+        return sigma,rgb , w_static
 
 
 
@@ -530,11 +531,15 @@ class NGP_time(nn.Module):
         sigma_dynamic,h_dyna=self.dynamic_density(x,t,return_feat=True)
         rgb_dynamic=self.rgb_net_dynamic(torch.cat([d, h_dyna],1))
 
-        return self.blend_together(s_sigma=sigma_dynamic,
+        extra={}
+        sigma,rgb,weight= self.blend_together(s_sigma=sigma_static,
                                    d_sigma=sigma_dynamic,
                                    s_rgb=rgb_static,
                                    d_rgb=rgb_dynamic[:,:-1],
                                    rho=rgb_dynamic[:,-1])
+        extra['static_weight']=weight
+
+        return sigma,rgb,extra
 
 
 

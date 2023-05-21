@@ -37,16 +37,28 @@ class DistortionLoss(torch.autograd.Function):
         return dL_dws, None, None, None
 
 
+#Element_Entropy=torch.special.entr
+
+
+def Element_Entropy(x:torch.Tensor):
+    return -x*torch.log(x)
+
+
+
 class NeRFLoss(nn.Module):
-    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3):
+    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3,lambda_entropy= 0.001):
         super().__init__()
 
         self.lambda_opacity = lambda_opacity
         self.lambda_distortion = lambda_distortion
-
+        self.lambda_entropy = lambda_entropy
     def forward(self, results, target, **kwargs):
         d = {}
         d['rgb'] = (results['rgb']-target['rgb'])**2
+
+        static_weight=results['static_weight']
+        #print(f'weight{static_weight}')
+        entropyloss=Element_Entropy(static_weight) # + Element_Entropy(1-static_weight)
 
         o = results['opacity']+1e-10
         # encourage opacity to be either 0 or 1 to avoid floater
@@ -56,5 +68,5 @@ class NeRFLoss(nn.Module):
             d['distortion'] = self.lambda_distortion * \
                 DistortionLoss.apply(results['ws'], results['deltas'],
                                      results['ts'], results['rays_a'])
-
+        d['entropy']=entropyloss*self.lambda_entropy
         return d

@@ -122,6 +122,7 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
     # otherwise, 4 is more efficient empirically
     min_samples = 1 if exp_step_factor==0 else 4
 
+    extra={}
     while samples < kwargs.get('max_samples', MAX_SAMPLES):
         N_alive = len(alive_indices)
         if N_alive==0: break
@@ -143,16 +144,25 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
 
         sigmas = torch.zeros(len(xyzs), device=device)
         rgbs = torch.zeros(len(xyzs), 3, device=device)
-        sigmas[valid_mask], _rgbs = model(xyzs[valid_mask], dirs[valid_mask], **kwargs)
+        sigmas[valid_mask], _rgbs , extra_ = model(xyzs[valid_mask], dirs[valid_mask], **kwargs)
         rgbs[valid_mask] = _rgbs.float()
         sigmas = rearrange(sigmas, '(n1 n2) -> n1 n2', n2=N_samples)
         rgbs = rearrange(rgbs, '(n1 n2) c -> n1 n2 c', n2=N_samples)
+
+
+        #for key in extra_.keys():
+        #    if extra.get(key) is None:
+        #        extra[key]=extra_[key]
+        #    else:
+        #        extra[key]= torch.cat([extra[key],extra_[key]],dim=0)
+
 
         vren.composite_test_fw(
             sigmas, rgbs, deltas, ts,
             hits_t[:, 0], alive_indices, kwargs.get('T_threshold', 1e-4),
             N_eff_samples, opacity, depth, rgb)
         alive_indices = alive_indices[alive_indices>=0] # remove converged rays
+
 
     results['opacity'] = opacity
     results['depth'] = depth
@@ -197,7 +207,7 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     #        tmp=v[rays_a[:, 0]]
 
             kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
-    sigmas, rgbs = model(xyzs, dirs, **kwargs)
+    sigmas, rgbs,extra = model(xyzs, dirs, **kwargs)
 
     (results['vr_samples'], results['opacity'],
     results['depth'], results['rgb'], results['ws']) = \
@@ -214,5 +224,7 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
             rgb_bg = torch.zeros(3, device=rays_o.device)
     results['rgb'] = results['rgb'] + \
                      rgb_bg*rearrange(1-results['opacity'], 'n -> n 1')
+    results.update(extra)
+
 
     return results

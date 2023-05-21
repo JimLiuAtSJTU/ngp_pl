@@ -79,7 +79,7 @@ class DNeRFSystem(LightningModule):
                 p.requires_grad = False
 
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
-        self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
+        self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
         self.model.register_buffer('density_grid',
             torch.zeros(self.model.cascades, G**3))
@@ -228,6 +228,9 @@ class DNeRFSystem(LightningModule):
             self.train_psnr(results['rgb'], batch['rgb'])
         self.log('lr', self.net_opt.param_groups[0]['lr'])
         self.log('train/loss', loss)
+        self.log('train/entropy', loss_d['entropy'].mean()*self.loss.lambda_entropy,True)
+
+
         # ray marching samples per ray (occupied space on the ray)
         self.log('train/rm_s', results['rm_samples']/len(batch['rgb']), True)
         # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
@@ -334,7 +337,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=min(25,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=hparams.num_epochs,#min(5,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

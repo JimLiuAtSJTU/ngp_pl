@@ -13,7 +13,7 @@ from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 
 
-STATIC_ONLY=True
+STATIC_ONLY=False
 
 val_indx_N3DV=0
 regenerate=False
@@ -289,7 +289,7 @@ class N3DV_dataset_2(BaseDataset):
                 Does not mean the time value is zero!
                 '''
                 time_indices = np.zeros_like(time_indices) #should be zero-indices!
-                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+                times = self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
 
 
@@ -306,7 +306,7 @@ class N3DV_dataset_2(BaseDataset):
             #for i in range(self.batch_size):
             #    ray_intices[i]=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
 
-            ray_indices=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
+            ray_indices = np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
 
             rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
 
@@ -331,9 +331,6 @@ class N3DV_dataset_2(BaseDataset):
         else:
 
 
-            '''
-            bugs. need to stack N_CAM and N_time together...
-            '''
             # test time
             '''
             self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)

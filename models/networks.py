@@ -153,7 +153,9 @@ class NGP(nn.Module):
             else: # convert to LDR using tonemapper networks
                 rgbs = self.log_radiance_to_rgb(rgbs, **kwargs)
 
-        return sigmas, rgbs
+        extra={}
+
+        return sigmas, rgbs, extra
 
     @torch.no_grad()
     def get_all_cells(self):
