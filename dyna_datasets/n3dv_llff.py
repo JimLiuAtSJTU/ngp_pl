@@ -13,10 +13,10 @@ from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 
 
-STATIC_ONLY=False
+STATIC_ONLY=False #debug only
 
 val_indx_N3DV=0
-regenerate=False
+#regenerate=False  # moved to hparams.
 '''
 poses bounds.npy
 '''
@@ -158,7 +158,7 @@ class N3DV_dataset(BaseDataset):
 class N3DV_dataset_2(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
-
+        regenerate=kwargs.get('regenerate',False)
         self.use_importance_sampling= kwargs.get('use_importance_sampling',True)
 
         self.ray_sampling_strategy=None # to be set by train_dynamic.py

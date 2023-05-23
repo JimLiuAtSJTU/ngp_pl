@@ -150,6 +150,7 @@ class DNeRFSystem(LightningModule):
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
+                  'regenerate':bool(self.hparams.regenerate),
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
@@ -242,7 +243,7 @@ class DNeRFSystem(LightningModule):
     def on_validation_start(self):
         torch.cuda.empty_cache()
         if not self.hparams.no_save_test:
-            self.val_dir = f'results/{self.hparams.dataset_name}/{self.hparams.exp_name}'
+            self.val_dir = f'results/dynamic/{self.hparams.dataset_name}/{self.hparams.exp_name}'
             os.makedirs(self.val_dir, exist_ok=True)
 
     def validation_step(self, batch, batch_nb):
@@ -286,7 +287,7 @@ class DNeRFSystem(LightningModule):
             rgb_pred = (rgb_pred*255).astype(np.uint8)
             depth = depth2img(rearrange(results['depth'].cpu().numpy(), '(h w) -> h w', h=h))
             imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}.png'), rgb_pred)
-            imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}_d.png'), depth)
+            imageio.imsave(os.path.join(self.val_dir, f'depth_{idx:03d}.png'), depth)
 
         return logs
 
@@ -316,9 +317,10 @@ if __name__ == '__main__':
     device_=torch.cuda.get_device_name(0)
     #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)
-
     t0=datetime.datetime.now()
     hparams = get_opts()
+    print(f'{datetime.datetime.now()}')
+    print(f'configs={hparams}')
     if hparams.val_only and (not hparams.ckpt_path):
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = DNeRFSystem(hparams)
@@ -332,7 +334,7 @@ if __name__ == '__main__':
                               save_top_k=-1)
     callbacks = [ckpt_cb, TQDMProgressBar(refresh_rate=1)]
 
-    logger = TensorBoardLogger(save_dir=f"logs/{hparams.dataset_name}",
+    logger = TensorBoardLogger(save_dir=f"logs/dynamic/{hparams.dataset_name}",
                                name=hparams.exp_name,
                                default_hp_metric=False)
 

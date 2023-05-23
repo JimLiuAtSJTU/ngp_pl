@@ -58,7 +58,12 @@ class NeRFLoss(nn.Module):
 
         static_weight=results['static_weight']
         #print(f'weight{static_weight}')
-        entropyloss=Element_Entropy(static_weight) # + Element_Entropy(1-static_weight)
+        '''
+        do not use symmetric binary entropy
+        because we encourage static_weight -> 1
+        '''
+        #print(f'static weight={static_weight},{static_weight.shape}')
+        entropyloss= Element_Entropy(static_weight) #  Element_Entropy(1-static_weight)
 
         o = results['opacity']+1e-10
         # encourage opacity to be either 0 or 1 to avoid floater
@@ -69,4 +74,5 @@ class NeRFLoss(nn.Module):
                 DistortionLoss.apply(results['ws'], results['deltas'],
                                      results['ts'], results['rays_a'])
         d['entropy']=entropyloss*self.lambda_entropy
+        #d['dynamic']=  torch.sum(torch.abs(1-static_weight))*self.lambda_entropy
         return d

@@ -33,6 +33,8 @@ def get_opts():
                         ''')
     parser.add_argument('--seed', type=int, default=1337, #8192
                         help='random seed')
+    parser.add_argument('--regenerate', type=int, default=0,choices=[0,1] ,
+                        help='whether regenerate dataset, 0 for false, 1 for true')
 
     # training options
     parser.add_argument('--batch_size', type=int, default=8192, #8192
