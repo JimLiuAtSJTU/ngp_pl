@@ -311,14 +311,19 @@ class DNeRFSystem(LightningModule):
         items.pop("v_num", None)
         return items
 
+def print_time_elapse(t0,t1,prefix=''):
+    dt = (t1 - t0).seconds
+    dmins = np.floor(dt / 60)
+    print(f'{prefix } = {dt} seconds,i.e.{dmins} min {dt - dmins * 60} s')
 
 
 if __name__ == '__main__':
     device_=torch.cuda.get_device_name(0)
     #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)
-    t0=datetime.datetime.now()
     hparams = get_opts()
+    t_start=datetime.datetime.now()
+
     print(f'{datetime.datetime.now()}')
     print(f'configs={hparams}')
     if hparams.val_only and (not hparams.ckpt_path):
@@ -349,14 +354,16 @@ if __name__ == '__main__':
                                if hparams.num_gpus>1 else None,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       precision=16)
-
+    t0=datetime.datetime.now()
+    print(f'{datetime.datetime.now()},start traning.')
     trainer.fit(system, ckpt_path=hparams.ckpt_path)
 
     t1=datetime.datetime.now()
 
-    dt = (t1 - t0).seconds
-    dmins = np.floor(dt / 60)
-    print(f'time elapse={dt} seconds,i.e.{dmins} min {dt - dmins * 60} s')
+    print_time_elapse(t0,t1,'training + evaluation')
+    print_time_elapse(t_start,t1,'data preparing + training + evaluation')
+
+
 
     if not hparams.val_only: # save slimmed ckpt for the last epoch
         ckpt_ = \
