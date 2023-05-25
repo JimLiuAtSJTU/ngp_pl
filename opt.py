@@ -7,6 +7,10 @@ default_downsample=1/(2704/1024)/2
 def get_opts():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--model_type', type=int, default=1,choices=[0,1],
+                        help='0 for ngp_time, 1 for ngp_time_plus')
+
+
     # dataset parameters
     parser.add_argument('--root_dir', type=str, required=True,
                         help='root directory of dataset')

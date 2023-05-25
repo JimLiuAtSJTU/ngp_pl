@@ -16,6 +16,15 @@ class NGP_time_code(nn.Module):
         self.rgb_act = rgb_act
         # scene bounding box
         self.scale = scale
+        self.time_stamps = 300
+        self.time_scale = 1
+        '''
+        assume time in [-1,1]
+        '''
+        self.t_center= torch.zeros(1)
+        self.t_min= -torch.ones(1)*self.time_scale
+        self.t_max= torch.ones(1)*self.time_scale
+
         self.register_buffer('center', torch.zeros(1, 3))
         self.register_buffer('xyz_min', -torch.ones(1, 3) * scale)
         self.register_buffer('xyz_max', torch.ones(1, 3) * scale)
@@ -28,7 +37,9 @@ class NGP_time_code(nn.Module):
                              torch.zeros(self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
 
         self.encoder_static = self.__get_hash_encoder(input_dims=3)
-        self.encoder_dynamic = self.__get_hash_encoder(input_dims=4)
+        self.encoder_dynamic = self.__get_hash_encoder(input_dims=3,config='xyz_dynamic')
+        self.time_latent_code = self.__get_hash_encoder(input_dims=1, config='time_latent_code')
+
 
         self.dir_encoder = \
             tcnn.Encoding(
@@ -41,41 +52,95 @@ class NGP_time_code(nn.Module):
 
         flow_dim = 0
         self.rgb_net_static = self.__get_fused_mlp(input_dims=32, output_dims=3)
-        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=32, output_dims=3 + 1 + flow_dim)  # rho for another dim
+        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=128, output_dims=3 + 1 + flow_dim)  # rho for another dim
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
         print(f'time aware NGP model initialized')
 
-    def __get_hash_encoder(self, input_dims=3):
+    def __get_hash_encoder(self, input_dims=3, config='xyz_mlp'):
         # constants
-        L = 16;
-        F = 2;
-        log2_T = 19;
-        N_min = 16
-        b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
-        # print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
+        if config=='xyz_mlp':
+            L = 16;
+            F = 2;
+            log2_T = 19;
+            N_min = 16
+            b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
 
-        return tcnn.NetworkWithInputEncoding(
-            n_input_dims=input_dims, n_output_dims=16,
-            encoding_config={
-                "otype": "Grid",
-                "type": "Hash",
-                "n_levels": L,
-                "n_features_per_level": F,
-                "log2_hashmap_size": log2_T,
-                "base_resolution": N_min,
-                "per_level_scale": b,
-                "interpolation": "Linear"
-            },
-            network_config={
-                "otype": "FullyFusedMLP",
-                "activation": "ReLU",
-                "output_activation": "None",
-                "n_neurons": 64,
-                "n_hidden_layers": 1,
-            }
-        )
+            return tcnn.NetworkWithInputEncoding(
+                n_input_dims=input_dims, n_output_dims=16,
+                encoding_config={
+                    "otype": "Grid",
+                    "type": "Hash",
+                    "n_levels": L,
+                    "n_features_per_level": F,
+                    "log2_hashmap_size": log2_T,
+                    "base_resolution": N_min,
+                    "per_level_scale": b,
+                    "interpolation": "Linear"
+                },
+                network_config={
+                    "otype": "FullyFusedMLP",
+                    "activation": "ReLU",
+                    "output_activation": "None",
+                    "n_neurons": 64,
+                    "n_hidden_layers": 1,
+                }
+            )
+
+        elif config=='time_latent_code':
+            # out = 16*4=64dim or 8 * 8 =64dim
+            L = 8;
+            F = 8;     # time latent code length
+            log2_T = 8; # 256 hash tables.
+            N_min = 30 #   300 frames, each part = 50framse   total, 10s.
+            highest_reso=self.time_stamps/1.414   # lower than the
+            b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
+            return tcnn.Encoding(
+                n_input_dims=input_dims,
+                encoding_config={
+                    "otype": "Grid",
+                    "type": "Hash",
+                    "n_levels": L,
+                    "n_features_per_level": F,
+                    "log2_hashmap_size": log2_T,
+                    "base_resolution": N_min,
+                    "per_level_scale": b,
+                    "interpolation": "Linear"
+                },
+            )
+
+
+        elif config=='xyz_dynamic':
+            L = 16;
+            F = 2;
+            log2_T = 19;
+            N_min = 16
+            b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
+
+            return tcnn.NetworkWithInputEncoding(
+                n_input_dims=input_dims, n_output_dims=48,
+                encoding_config={
+                    "otype": "Grid",
+                    "type": "Hash",
+                    "n_levels": L,
+                    "n_features_per_level": F,
+                    "log2_hashmap_size": log2_T,
+                    "base_resolution": N_min,
+                    "per_level_scale": b,
+                    "interpolation": "Linear"
+                },
+                network_config={
+                    "otype": "FullyFusedMLP",
+                    "activation": "ReLU",
+                    "output_activation": "None",
+                    "n_neurons": 64,
+                    "n_hidden_layers": 1,
+                }
+            )
+
+        else:
+            raise NotImplementedError
 
     def __get_fused_mlp(self, input_dims=32, output_dims=3):
 
@@ -90,17 +155,6 @@ class NGP_time_code(nn.Module):
             }
         )
 
-    def static_branch(self, x):
-        pass
-        sigmas = 0
-        rgbs = 0
-        return sigmas, rgbs
-
-    def dynamic_branch(self, x, t):
-        pass
-        sigmas = 0
-        rgbs = 0
-        return sigmas, rgbs
 
     def blend_together(self, s_sigma, d_sigma, s_rgb, d_rgb, rho):
         '''
@@ -135,13 +189,6 @@ class NGP_time_code(nn.Module):
         '''
         return sigma, rgb, w_static
 
-    def __xyzt_network(self, x_coords, t):
-
-        yzt = torch.cat([x_coords[:, 1:3], t], dim=-1)
-        xyt = torch.cat([x_coords[:, 0:2], t], dim=-1)
-        zxt = torch.cat([x_coords[:, -1], x_coords[:, 0], t], dim=-1)
-
-        pass
 
     def static_density(self, x, return_feat=False):
         """
@@ -159,7 +206,7 @@ class NGP_time_code(nn.Module):
         if return_feat: return sigmas, h
         return sigmas
 
-    def dynamic_density(self, x, t=0, return_feat=False):
+    def dynamic_density(self, x, return_feat=False):
         """
         Inputs:
             x: (N, 3) xyz in [-scale, scale]
@@ -169,7 +216,6 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
         """
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
-        x = torch.cat([x, t], dim=-1)
         h = self.encoder_dynamic(x)
 
         sigmas = TruncExp.apply(h[:, 0])
@@ -207,8 +253,15 @@ class NGP_time_code(nn.Module):
         sigma_static, h_static = self.static_density(x, return_feat=True)
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
 
-        sigma_dynamic, h_dyna = self.dynamic_density(x, t, return_feat=True)
-        rgb_dynamic = self.rgb_net_dynamic(torch.cat([d, h_dyna], 1))
+        sigma_dynamic, h_dyna = self.dynamic_density(x,  return_feat=True)
+
+        time_code=self.time_latent_code(t)
+        rgbnet_in=torch.cat([d, h_dyna,time_code], 1)
+        #print(time_code.shape)
+        #print(d.shape)
+        #print(h_dyna.shape)
+        #exit(9)
+        rgb_dynamic = self.rgb_net_dynamic(rgbnet_in)
 
         extra = {}
         sigma, rgb, weight = self.blend_together(s_sigma=sigma_static,

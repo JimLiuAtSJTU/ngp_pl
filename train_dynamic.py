@@ -25,6 +25,7 @@ from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_m
 from kornia.utils.grid import create_meshgrid3d
 from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
+from models.networks_dynamic_plus import NGP_time_code
 
 from models.rendering import render, MAX_SAMPLES
 
@@ -79,7 +80,11 @@ class DNeRFSystem(LightningModule):
                 p.requires_grad = False
 
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
-        self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
+        if self.hparams.model_type==0:
+            self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
+
+        else:
+            self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
         self.model.register_buffer('density_grid',
             torch.zeros(self.model.cascades, G**3))
