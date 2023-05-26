@@ -87,7 +87,6 @@ class NGP_time_code(nn.Module):
                     "n_hidden_layers": 1,
                 }
             )
-
         elif config=='time_latent_code':
             # out = 16*4=64dim or 8 * 8 =64dim
             L = 8;
