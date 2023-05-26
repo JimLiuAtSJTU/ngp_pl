@@ -203,7 +203,7 @@ class DNeRFSystem(LightningModule):
 
     def val_dataloader(self):
         return DataLoader(self.test_dataset,
-                          num_workers=1,
+                          num_workers=8,
                           batch_size=None,
                           pin_memory=True)
 
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     if hparams.val_only and (not hparams.ckpt_path):
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = DNeRFSystem(hparams)
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<128>"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
     #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
@@ -349,7 +349,7 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=hparams.num_epochs,#min(5,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=hparams.num_epochs//5,#min(5,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

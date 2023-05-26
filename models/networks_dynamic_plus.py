@@ -94,7 +94,7 @@ class NGP_time_code(nn.Module):
             F = 8;     # time latent code length
             log2_T = 8; # 256 hash tables.
             N_min = 30 #   300 frames, each part = 50framse   total, 10s.
-            highest_reso=self.time_stamps/1.414   # lower than the
+            highest_reso=self.time_stamps*0.666 # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
             return tcnn.Encoding(
                 n_input_dims=input_dims,
@@ -256,12 +256,12 @@ class NGP_time_code(nn.Module):
         sigma_dynamic, h_dyna = self.dynamic_density(x,  return_feat=True)
 
         time_code=self.time_latent_code(t)
-        rgbnet_in=torch.cat([d, h_dyna,time_code], 1)
+        time_code=torch.cat([d, h_dyna,time_code], 1)
         #print(time_code.shape)
         #print(d.shape)
         #print(h_dyna.shape)
         #exit(9)
-        rgb_dynamic = self.rgb_net_dynamic(rgbnet_in)
+        rgb_dynamic = self.rgb_net_dynamic(time_code)
 
         extra = {}
         sigma, rgb, weight = self.blend_together(s_sigma=sigma_static,
