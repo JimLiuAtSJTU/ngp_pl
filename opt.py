@@ -41,7 +41,7 @@ def get_opts():
                         help='whether regenerate dataset, 0 for false, 1 for true')
 
     # training options
-    parser.add_argument('--batch_size', type=int, default=8192, #8192
+    parser.add_argument('--batch_size', type=int, default=6144, #8192
                         help='number of rays in a batch')
     parser.add_argument('--ray_sampling_strategy', type=str, default='all_time',
                         choices=['all_images', 'same_image','all_time','same_time'],

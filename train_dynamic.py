@@ -323,6 +323,7 @@ def print_time_elapse(t0,t1,prefix=''):
 
 
 if __name__ == '__main__':
+    torch.autograd.set_detect_anomaly(True)
     device_=torch.cuda.get_device_name(0)
     #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)

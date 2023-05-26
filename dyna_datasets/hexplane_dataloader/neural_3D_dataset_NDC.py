@@ -369,13 +369,13 @@ class Neural3D_NDC_Dataset(Dataset):
         self.directions = torch.tensor(
             get_ray_directions_blender(H, W, self.focal)
         )  # (H, W, 3)
+        max_time_count = 300
 
         if self.split == "train":
             # Loading all videos from this dataset requires around 50GB memory, and stack them into a tensor requires another 50GB.
             # To save memory, we allocate a large tensor and load videos into it instead of using torch.stack/cat operations.
             all_times = []
             all_rays = []
-            count = 300
 
             for index in range(0, len(videos)):
                 if (
@@ -383,7 +383,7 @@ class Neural3D_NDC_Dataset(Dataset):
                 ):  # the eval_index(0 as default) is the evaluation one. We skip evaluation cameras.
                     continue
 
-                video_times = torch.tensor([i / (count - 1) for i in range(count)])
+                video_times = torch.tensor([i / (max_time_count - 1) for i in range(max_time_count)])
                 all_times += [video_times]
 
                 rays_o, rays_d = get_rays(
@@ -476,6 +476,8 @@ class Neural3D_NDC_Dataset(Dataset):
             index = self.eval_index
             video_imgs = []
             video_frames = cv2.VideoCapture(videos[index])
+
+            time_cnt=0
             while video_frames.isOpened():
                 ret, video_frame = video_frames.read()
                 if ret:
@@ -486,6 +488,10 @@ class Neural3D_NDC_Dataset(Dataset):
                     img = self.transform(img) # H,W,3
                     #video_imgs += [img.permute(2, 1, 0)] #if you need to locate pixel
                     video_imgs += [img.view(3, -1).permute(1, 0)] # H*W, 3
+                    time_cnt += 1
+                    if time_cnt>=max_time_count:
+                        break
+
                 else:
                     break
             video_imgs = torch.stack(video_imgs, 0) #
