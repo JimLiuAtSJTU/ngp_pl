@@ -7,7 +7,7 @@ default_downsample=1/(2704/1024)/2
 def get_opts():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--model_type', type=int, default=1,choices=[0,1],
+    parser.add_argument('--model_type', type=int, default=1,choices=[0,1,-1],
                         help='0 for ngp_time, 1 for ngp_time_plus')
 
 
@@ -41,7 +41,7 @@ def get_opts():
                         help='whether regenerate dataset, 0 for false, 1 for true')
 
     # training options
-    parser.add_argument('--batch_size', type=int, default=6144, #8192
+    parser.add_argument('--batch_size', type=int, default=4096, #8192
                         help='number of rays in a batch')
     parser.add_argument('--ray_sampling_strategy', type=str, default='all_time',
                         choices=['all_images', 'same_image','all_time','same_time'],

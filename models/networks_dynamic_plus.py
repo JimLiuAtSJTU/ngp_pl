@@ -21,6 +21,7 @@ class NGP_time_code(nn.Module):
         '''
         assume time in [-1,1]
         '''
+        self.time_grid_resolution = 10
         self.t_center= torch.zeros(1)
         self.t_min= -torch.ones(1)*self.time_scale
         self.t_max= torch.ones(1)*self.time_scale
@@ -39,8 +40,6 @@ class NGP_time_code(nn.Module):
         self.encoder_static = self.__get_hash_encoder(input_dims=3)
         self.encoder_dynamic = self.__get_hash_encoder(input_dims=3,config='xyz_dynamic')
         self.time_latent_code = self.__get_hash_encoder(input_dims=1, config='time_latent_code')
-
-
         self.dir_encoder = \
             tcnn.Encoding(
                 n_input_dims=3,
@@ -49,7 +48,6 @@ class NGP_time_code(nn.Module):
                     "degree": 4,
                 },
             )
-
         sigma_factor_dim = 1
         self.rgb_net_static = self.__get_fused_mlp(input_dims=32, output_dims=3)
         self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=128, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
@@ -137,10 +135,8 @@ class NGP_time_code(nn.Module):
                     "n_hidden_layers": 1,
                 }
             )
-
         else:
             raise NotImplementedError
-
     def __get_fused_mlp(self, input_dims=32, output_dims=3):
 
         return tcnn.Network(
@@ -153,8 +149,6 @@ class NGP_time_code(nn.Module):
                 "n_hidden_layers": 2,
             }
         )
-
-
     def blend_together(self, s_sigma, d_sigma, s_rgb, d_rgb, rho):
         '''
 
@@ -390,8 +384,12 @@ class NGP_time_code(nn.Module):
             xyzs_w = (coords / (self.grid_size - 1) * 2 - 1) * (s - half_grid_size)
             # pick random position in the cell by adding noise in [-hgs, hgs]
             xyzs_w += (torch.rand_like(xyzs_w) * 2 - 1) * half_grid_size
-            density_grid_tmp[c, indices] = self.static_density(xyzs_w)
-
+            '''
+            according to the blendring together algorithm in Neural Scene Flow Fields
+            we should add the static and dynamic density together.
+            '''
+            density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w,return_feat=False)
+        print(1)
         if erode:
             # My own logic. decay more the cells that are visible to few cameras
             decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)
@@ -399,8 +397,8 @@ class NGP_time_code(nn.Module):
             torch.where(self.density_grid < 0,
                         self.density_grid,
                         torch.maximum(self.density_grid * decay, density_grid_tmp))
-
+        print(2)
         mean_density = self.density_grid[self.density_grid > 0].mean().item()
-
+        print(3)
         vren.packbits(self.density_grid, min(mean_density, density_threshold),
                       self.density_bitfield)

@@ -373,7 +373,7 @@ class NGP_time(nn.Module):
                     "log2_hashmap_size": log2_T,
                     "base_resolution": N_min,
                     "per_level_scale": b,
-                    "interpolation": "Linear"
+                    "interpolation": "Linear" # Linear
                 },
                 network_config={
                     "otype": "FullyFusedMLP",

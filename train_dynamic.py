@@ -82,7 +82,8 @@ class DNeRFSystem(LightningModule):
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
         if self.hparams.model_type==0:
             self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
-
+        elif self.hparams.model_type==-1:
+            self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
         else:
             self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
         G = self.model.grid_size
@@ -214,11 +215,14 @@ class DNeRFSystem(LightningModule):
 
     def training_step(self, batch, batch_nb, *args):
         if self.global_step%self.update_interval == 0:
-            self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
+            with torch.no_grad():
+                self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
                                            warmup=self.global_step<self.warmup_steps,
                                            erode=True,
                       #                     erode=self.hparams.dataset_name=='colmap'
                                            )
+
+
 
         results = self(batch, split='train')
         loss_d = self.loss(results, batch)
@@ -359,6 +363,7 @@ if __name__ == '__main__':
                       strategy=DDPPlugin(find_unused_parameters=False)
                                if hparams.num_gpus>1 else None,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
+                      accumulate_grad_batches=2,
                       precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
