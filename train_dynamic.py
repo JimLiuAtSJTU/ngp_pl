@@ -42,11 +42,11 @@ from torchmetrics import (
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 # pytorch-lightning
-from pytorch_lightning.plugins import DDPPlugin
+#from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import TQDMProgressBar, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
+#from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
 
 from utils import slim_ckpt, load_ckpt
 from dyna_datasets.ray_utils import visualize_poses
@@ -92,6 +92,9 @@ class DNeRFSystem(LightningModule):
         self.model.register_buffer('grid_coords',
             create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
 
+
+        self.process_cache={}
+        self.process_cache['validation_epoch']=[]
     def forward(self, batch, split):
 
         if split=='train':
@@ -164,6 +167,14 @@ class DNeRFSystem(LightningModule):
 
         self.test_dataset = dataset(split='test', **kwargs)
 
+    def lr_scheduler_step(self, scheduler, metric):
+        if metric is None:
+            '''
+            mannually overwrite the method because of ligntning cannot recognize pytorch scheduler type.
+            '''
+            scheduler.step()
+        else:
+            scheduler.step(metric)
     def configure_optimizers(self):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
@@ -298,22 +309,26 @@ class DNeRFSystem(LightningModule):
             imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}.png'), rgb_pred)
             imageio.imsave(os.path.join(self.val_dir, f'depth_{idx:03d}.png'), depth)
 
+        self.process_cache['validation_epoch'].append(logs)
+
         return logs
 
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
+        outputs=self.process_cache['validation_epoch']
         psnrs = torch.stack([x['psnr'] for x in outputs])
-        mean_psnr = all_gather_ddp_if_available(psnrs).mean()
+        mean_psnr = psnrs.mean()
         self.log('test/psnr', mean_psnr, True)
 
         ssims = torch.stack([x['ssim'] for x in outputs])
-        mean_ssim = all_gather_ddp_if_available(ssims).mean()
+        mean_ssim = ssims.mean()
         self.log('test/ssim', mean_ssim)
 
         if self.hparams.eval_lpips:
             lpipss = torch.stack([x['lpips'] for x in outputs])
-            mean_lpips = all_gather_ddp_if_available(lpipss).mean()
+            mean_lpips = lpipss.mean()
             self.log('test/lpips_vgg', mean_lpips)
 
+        #self.process_cache.pop()
     def get_progress_bar_dict(self):
         # don't show the version number
         items = super().get_progress_bar_dict()
@@ -339,6 +354,7 @@ if __name__ == '__main__':
     if hparams.val_only and (not hparams.ckpt_path):
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = DNeRFSystem(hparams)
+    compiled_system=system
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
     #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
@@ -360,14 +376,15 @@ if __name__ == '__main__':
                       enable_model_summary=False,
                       accelerator='gpu',
                       devices=hparams.num_gpus,
-                      strategy=DDPPlugin(find_unused_parameters=False)
-                               if hparams.num_gpus>1 else None,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       accumulate_grad_batches=2,
                       precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
-    trainer.fit(system, ckpt_path=hparams.ckpt_path)
+    torch._dynamo.config.verbose = True
+    torch._dynamo.config.suppress_errors = True
+    torch.set_float32_matmul_precision('high')
+    trainer.fit(compiled_system, ckpt_path=hparams.ckpt_path)
 
     t1=datetime.datetime.now()
 
