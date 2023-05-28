@@ -26,6 +26,8 @@ def render(model, rays_o, rays_d, **kwargs):
     test_time=kwargs.get('test_time', False)
     if test_time:
         render_func = __render_rays_test
+    elif kwargs.get('time_batch',None) is not None:
+        render_func = __render_rays_train_time_batch
     else:
         render_func = __render_rays_train
 
@@ -179,6 +181,60 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
 
 
 def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
+    """
+    Render rays by
+    1. March the rays along their directions, querying @density_bitfield
+       to skip empty space, and get the effective sample points (where
+       there is object)
+    2. Infer the NN at these positions and view directions to get properties
+       (currently sigmas and rgbs)
+    3. Use volume rendering to combine the result (front to back compositing
+       and early stop the ray if its transmittance is below a threshold)
+    """
+    exp_step_factor = kwargs.get('exp_step_factor', 0.)
+    results = {}
+
+    (rays_a, xyzs, dirs,
+    results['deltas'], results['ts'], results['rm_samples']) = \
+        RayMarcher.apply(
+            rays_o, rays_d, hits_t[:, 0], model.density_bitfield,
+            model.cascades, model.scale,
+            exp_step_factor, model.grid_size, MAX_SAMPLES)
+    #print(f'rays_a,rays_a.shape',rays_a,rays_a.shape)
+    #print(kwargs)
+    for k, v in kwargs.items(): # supply additional inputs, repeated per ray
+        if isinstance(v, torch.Tensor):
+    #        print(f'key ={k},value={v}')
+    #        print(f'tmp v,{v},{v.shape}')
+    #        tmp=v[rays_a[:, 0]]
+
+            kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
+    sigmas, rgbs,extra = model(xyzs, dirs, **kwargs)
+
+    (results['vr_samples'], results['opacity'],
+    results['depth'], results['rgb'], results['ws']) = \
+        VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
+                             rays_a, kwargs.get('T_threshold', 1e-4))
+    results['rays_a'] = rays_a
+
+    if exp_step_factor==0: # synthetic
+        rgb_bg = torch.ones(3, device=rays_o.device)
+    else: # real
+        if kwargs.get('random_bg', False):
+            rgb_bg = torch.rand(3, device=rays_o.device)
+        else:
+            rgb_bg = torch.zeros(3, device=rays_o.device)
+    results['rgb'] = results['rgb'] + \
+                     rgb_bg*rearrange(1-results['opacity'], 'n -> n 1')
+    results.update(extra)
+
+
+    return results
+
+
+
+
+def __render_rays_train_time_batch(model, rays_o, rays_d, hits_t, **kwargs):
     """
     Render rays by
     1. March the rays along their directions, querying @density_bitfield

@@ -125,10 +125,15 @@ class DNeRFSystem(LightningModule):
         kwargs = {'test_time': split!='train',
                   'times':times,
                   'random_bg': self.hparams.random_bg}
+
         if self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
         if self.hparams.use_exposure:
             kwargs['exposure'] = batch['exposure']
+
+        if self.hparams.ray_sampling_strategy =='batch_time':
+            kwargs['time_batch'] = batch['time_batch']
+            kwargs['time_batch_size'] = batch['time_batch_size']
 
         return render(self.model, rays_o, rays_d, **kwargs)
 
@@ -355,6 +360,7 @@ if __name__ == '__main__':
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = DNeRFSystem(hparams)
     compiled_system=system
+    #compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
     #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
@@ -381,8 +387,8 @@ if __name__ == '__main__':
                       precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
-    torch._dynamo.config.verbose = True
-    torch._dynamo.config.suppress_errors = True
+    #torch._dynamo.config.verbose = True
+    #torch._dynamo.config.suppress_errors = True
     torch.set_float32_matmul_precision('high')
     trainer.fit(compiled_system, ckpt_path=hparams.ckpt_path)
 

@@ -256,7 +256,7 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=1
 
     def __getitem__(self, idx):
-
+        sample={}
         if self.split.startswith('train'):
             '''
             self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
@@ -272,6 +272,18 @@ class N3DV_dataset_2(BaseDataset):
                 '''
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
                 time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
+                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+            elif self.ray_sampling_strategy == 'batch_time':
+                # randomly select across time, but with a smaller batch size
+                # to use with  time - occupancy grids
+                time_batch_size=16
+
+                assert self.batch_size%time_batch_size==0
+                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+                time_indices0 = np.random.choice(self.N_time, self.batch_size//time_batch_size,p=None,replace=True)
+                sample['time_batch']=time_indices0
+                sample['time_batch_size']=time_batch_size
+                time_indices = torch.repeat_interleave(time_indices0,repeats=time_batch_size,dim=0)
                 times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
             else:
@@ -323,9 +335,10 @@ class N3DV_dataset_2(BaseDataset):
             #breakpoint()
 
             #print(f'im {cam_idxs.shape},pix{pix_idxs.shape},times{times.shape},rgb{rgbs.shape}')
-            sample = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
+            tmp = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
                       'times':times,
                       'rgb': rgbs[:, :3]}
+            sample.update(tmp)
             #print(sample)
 
         else:

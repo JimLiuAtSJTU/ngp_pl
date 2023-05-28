@@ -367,7 +367,7 @@ class NGP_time_code(nn.Module):
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
         density_grid_tmp = torch.zeros_like(self.density_grid)
-        print(f'updating density grid, warmup={warmup}')
+        #print(f'updating density grid, warmup={warmup}')
 
         if warmup:  # during the first steps
             cells = self.get_all_cells()
