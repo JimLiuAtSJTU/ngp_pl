@@ -43,13 +43,13 @@ def get_opts():
     # training options
     parser.add_argument('--batch_size', type=int, default=4096, #8192
                         help='number of rays in a batch')
-    parser.add_argument('--ray_sampling_strategy', type=str, default='all_time',
-                        choices=['all_images', 'same_image','all_time','same_time'],
+    parser.add_argument('--ray_sampling_strategy', type=str, default='batch_time',
+                        choices=['all_images', 'same_image','all_time','batch_time','same_time'],
                         help='''
                         all_images: uniformly from all pixels of ALL images
                         same_image: uniformly from all pixels of a SAME image
                         ''')
-    parser.add_argument('--num_epochs', type=int, default=1000, # 300
+    parser.add_argument('--num_epochs', type=int, default=30, # 300
                         help='number of training epochs')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='number of gpus')

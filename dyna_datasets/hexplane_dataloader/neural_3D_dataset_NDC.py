@@ -383,7 +383,7 @@ class Neural3D_NDC_Dataset(Dataset):
                 ):  # the eval_index(0 as default) is the evaluation one. We skip evaluation cameras.
                     continue
 
-                video_times = torch.tensor([i / (max_time_count - 1) for i in range(max_time_count)])
+                video_times = torch.tensor([i / (max_time_count ) for i in range(max_time_count)])
                 all_times += [video_times]
 
                 rays_o, rays_d = get_rays(
@@ -496,7 +496,7 @@ class Neural3D_NDC_Dataset(Dataset):
                     break
             video_imgs = torch.stack(video_imgs, 0) #
             video_times = torch.tensor(
-                [i / (len(video_imgs) - 1) for i in range(len(video_imgs))]
+                [i / (len(video_imgs) ) for i in range(len(video_imgs))]
             )
             video_imgs = video_imgs[0 :: self.eval_step]
             video_times = video_times[0 :: self.eval_step]

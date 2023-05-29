@@ -24,30 +24,85 @@ def render(model, rays_o, rays_d, **kwargs):
         result: dictionary containing final rgb and depth
     """
     test_time=kwargs.get('test_time', False)
-    if test_time:
-        render_func = __render_rays_test
-    elif kwargs.get('time_batch',None) is not None:
-        render_func = __render_rays_train_time_batch
-    else:
+
+    plus_variables = ['rm_samples', 'vr_samples']
+
+    if not test_time:
+        assert kwargs.get('time_batch', None) is not None, "this function should be called with time batch during training"
+        time_stamp_batch = kwargs['time_batch']  # N_times
+        time_all = kwargs['times']  # N_points
+        time_stamp_bsize = kwargs['time_batch_size']
+        assert time_all.shape[0] % time_stamp_bsize == 0
+        assert time_stamp_batch.shape[0] == time_stamp_bsize
+        t_trunk_size = time_all.shape[0] // time_stamp_bsize
+        assert t_trunk_size > 0
+        t_indices = model.get_t_grid_indices(time_stamp_batch).squeeze()
+
         render_func = __render_rays_train
+        result = {}
+        rays_o=rays_o.contiguous()
+        rays_d=rays_d.contiguous()
+        for i in range(time_stamp_bsize):
+            time_grid_indx=t_indices[i]
+            start_ = t_trunk_size * i
+            end_ = t_trunk_size * (i + 1)
 
-    trunk_= kwargs.get('trunks')
+            rays_o__ = rays_o[start_:end_]
+            rays_d__ = rays_d[start_:end_]
+            _, hits_t, _ = \
+                RayAABBIntersector.apply(rays_o__, rays_d__, model.center, model.half_size, 1)
+            hits_t[(hits_t[:, 0, 0]>=0)&(hits_t[:, 0, 0]<NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
 
-    if not test_time or trunk_ is None:
-        rays_o = rays_o.contiguous(); rays_d = rays_d.contiguous()
-        _, hits_t, _ = \
-            RayAABBIntersector.apply(rays_o, rays_d, model.center, model.half_size, 1)
-        hits_t[(hits_t[:, 0, 0]>=0)&(hits_t[:, 0, 0]<NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
+            render_kwargs={}
+            render_kwargs['time_grid_indx']=time_grid_indx.item()
+
+            excludes=['time_batch']
+
+            for k in kwargs.keys():
+                if k not in excludes:
+                    render_kwargs[k]=kwargs[k]
+            render_kwargs['times']=kwargs['time_batch'][i]
 
 
-        result = render_func(model, rays_o, rays_d, hits_t, **kwargs)
-        for k, v in result.items():
-            if kwargs.get('to_cpu', False):
-                v = v.cpu()
-                if kwargs.get('to_numpy', False):
-                    v = v.numpy()
-            result[k] = v
+            rst = render_func(model, rays_o__, rays_d__, hits_t, **render_kwargs)
+            '''
+            A=torch.tensor(199.5)
+            A.shape
+            Out[20]: torch.Size([])
+            len(A.shape)
+            Out[21]: 0
+            B=torch.tensor([])
+            B.shape
+            Out[23]: torch.Size([0])
+            '''
+
+
+            for key in rst.keys():
+                if result.get(key) is None:
+                    result[key] = []
+                    if key in plus_variables:
+                        result[key] = torch.zeros(1,device=rays_o.device)
+                tmp=rst.get(key)
+
+                if key in plus_variables:
+                    result[key] = tmp + result[key]
+                else:
+                    if len(tmp.shape)>0:
+                        result[key] += [tmp]
+
+
+        for key in result.keys():
+            if key in plus_variables:continue
+
+            try:
+                result[key] = torch.cat(result[key], dim=0)
+            except:
+                print(key)
+                print(result)
+                exit(1)
     else:
+        trunk_ = kwargs.get('trunks')
+
         assert isinstance(trunk_,int)
         # test, and trunks is not None
         rays_o = rays_o.contiguous()
@@ -67,7 +122,7 @@ def render(model, rays_o, rays_d, **kwargs):
                 RayAABBIntersector.apply(rays_o__, rays_d__, model.center, model.half_size, 1)
             hits_t[(hits_t[:, 0, 0] >= 0) & (hits_t[:, 0, 0] < NEAR_DISTANCE), 0, 0] = NEAR_DISTANCE
 
-            rst = render_func(model, rays_o__, rays_d__, hits_t, **kwargs)
+            rst = __render_rays_test(model, rays_o__, rays_d__, hits_t, **kwargs)
 
             for key in rst.keys():
                 if result.get(key) is None:
@@ -82,16 +137,15 @@ def render(model, rays_o, rays_d, **kwargs):
             try:
                 result[key] = torch.cat(result[key], dim=0)
             except:
-
                 assert len(result[key])==0
 
 
-        for k, v in result.items():
-            if kwargs.get('to_cpu', False):
-                v = v.cpu()
-                if kwargs.get('to_numpy', False):
-                    v = v.numpy()
-            result[k] = v
+    for k, v in result.items():
+        if kwargs.get('to_cpu', False):
+            v = v.cpu()
+            if kwargs.get('to_numpy', False):
+                v = v.numpy()
+        result[k] = v
 
     return result
 
@@ -191,24 +245,34 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     3. Use volume rendering to combine the result (front to back compositing
        and early stop the ray if its transmittance is below a threshold)
     """
+    time_grid_indx=kwargs['time_grid_indx']
+
+
+    assert isinstance(time_grid_indx,int)
     exp_step_factor = kwargs.get('exp_step_factor', 0.)
     results = {}
-
     (rays_a, xyzs, dirs,
     results['deltas'], results['ts'], results['rm_samples']) = \
         RayMarcher.apply(
-            rays_o, rays_d, hits_t[:, 0], model.density_bitfield,
+            rays_o, rays_d, hits_t[:, 0], model.density_bitfield[time_grid_indx],
             model.cascades, model.scale,
             exp_step_factor, model.grid_size, MAX_SAMPLES)
     #print(f'rays_a,rays_a.shape',rays_a,rays_a.shape)
     #print(kwargs)
-    for k, v in kwargs.items(): # supply additional inputs, repeated per ray
-        if isinstance(v, torch.Tensor):
-    #        print(f'key ={k},value={v}')
-    #        print(f'tmp v,{v},{v.shape}')
-    #        tmp=v[rays_a[:, 0]]
 
-            kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
+    for k, v in kwargs.items(): # supply additional inputs, repeated per ray
+
+        if isinstance(v, torch.Tensor) and k!='times' :
+            try:
+                kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
+            except:
+                print(kwargs)
+                print(k,v)
+                exit(10)
+        #if k=='times':
+            #print(k)
+            #print(kwargs[k])
+
     sigmas, rgbs,extra = model(xyzs, dirs, **kwargs)
 
     (results['vr_samples'], results['opacity'],
@@ -232,3 +296,11 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     return results
 
 
+
+
+def concat_dict_keys(src:dict,dst:dict):
+    for k in src.keys():
+        if k not in dst.keys():
+            dst[k]=src[k]
+        else:
+            dst[k]=torch.cat([dst[k],src[k]],dim=0)

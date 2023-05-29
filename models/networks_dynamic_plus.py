@@ -7,6 +7,7 @@ from .custom_functions import TruncExp
 import numpy as np
 import torch.nn.functional as F
 from .rendering import NEAR_DISTANCE
+from kornia.utils.grid import create_meshgrid3d
 
 
 class NGP_time_code(nn.Module):
@@ -21,10 +22,13 @@ class NGP_time_code(nn.Module):
         '''
         assume time in [-1,1]
         '''
+        self.t_min= - self.time_scale # -1 as default
+        self.t_max= self.time_scale # 1 as default
+
         self.time_grid_resolution = 10
         self.t_center= torch.zeros(1)
-        self.t_min= -torch.ones(1)*self.time_scale
-        self.t_max= torch.ones(1)*self.time_scale
+        #self.t_min= -torch.ones(1)*self.time_scale
+        #self.t_max= torch.ones(1)*self.time_scale
 
         self.register_buffer('center', torch.zeros(1, 3))
         self.register_buffer('xyz_min', -torch.ones(1, 3) * scale)
@@ -32,10 +36,10 @@ class NGP_time_code(nn.Module):
         self.register_buffer('half_size', (self.xyz_max - self.xyz_min) / 2)
 
         # each density grid covers [-2^(k-1), 2^(k-1)]^3 for k in [0, C-1]
-        self.cascades = max(1 + int(np.ceil(np.log2(2 * scale))), 1)
+        self.cascades = max(1 + int(np.ceil(np.log2(2 * scale))), 1) # int
         self.grid_size = 128
         self.register_buffer('density_bitfield',
-                             torch.zeros(self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
+                             torch.zeros(self.time_grid_resolution, self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
 
         self.encoder_static = self.__get_hash_encoder(input_dims=3)
         self.encoder_dynamic = self.__get_hash_encoder(input_dims=3,config='xyz_dynamic')
@@ -54,7 +58,19 @@ class NGP_time_code(nn.Module):
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
+
+        self.init_density_grids()
         print(f'time aware NGP model initialized')
+    def init_density_grids(self):
+        G = self.grid_size
+        self.register_buffer('density_grid',
+                             torch.zeros(self.time_grid_resolution, self.cascades, G ** 3))
+
+        tmp = create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3)
+        size_ = tmp.shape[0]
+        self.register_buffer('grid_coords', torch.zeros(self.time_grid_resolution, size_, 3,dtype=torch.int32))
+        for i in range(self.time_grid_resolution):
+            self.grid_coords[i] = tmp[:, :]
 
     def __get_hash_encoder(self, input_dims=3, config='xyz_mlp'):
         # constants
@@ -230,8 +246,8 @@ class NGP_time_code(nn.Module):
         try:
             assert t.shape[0] == x.shape[0]
         except AssertionError:
-            # print(f'x,t',x,t)
-            # print(f'x,t',x.shape,t.shape)
+            #print(f'x,t',x,t)
+            #print(f'x,t',x.shape,t.shape)
 
             assert t.shape[0] == 1
 
@@ -247,6 +263,10 @@ class NGP_time_code(nn.Module):
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
 
         sigma_dynamic, h_dyna = self.dynamic_density(x,  return_feat=True)
+
+        # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
+        # tcnn supports inputs within [0,1]
+        t = (t-self.t_min)/(self.t_max-self.t_min)
 
         time_code=self.time_latent_code(t)
         time_code=torch.cat([d, h_dyna,time_code], 1)
@@ -276,8 +296,8 @@ class NGP_time_code(nn.Module):
             cells: list (of length self.cascades) of indices and coords
                    selected at each cascade
         """
-        indices = vren.morton3D(self.grid_coords).long()
-        cells = [(indices, self.grid_coords)] * self.cascades
+        indices = vren.morton3D(self.grid_coords[0]).long()
+        cells = [(indices, self.grid_coords[0])] * self.cascades
 
         return cells
 
@@ -291,35 +311,37 @@ class NGP_time_code(nn.Module):
             cells: list (of length self.cascades) of indices and coords
                    selected at each cascade
         """
-        cells = []
-        for c in range(self.cascades):
-            # uniform cells
-            coords1 = torch.randint(self.grid_size, (M, 3), dtype=torch.int32,
-                                    device=self.density_grid.device)
-            indices1 = vren.morton3D(coords1).long()
-            # occupied cells
-            indices2 = torch.nonzero(self.density_grid[c] > density_threshold)[:, 0]
-            if len(indices2) > 0:
-                rand_idx = torch.randint(len(indices2), (M,),
-                                         device=self.density_grid.device)
-                indices2 = indices2[rand_idx]
-                coords2 = vren.morton3D_invert(indices2.int())
-            else:
-                indices2 = None
-                coords2 = None
+        t_cells=[]
+        for t in range(self.time_grid_resolution):
+            cells = []
+            for c in range(self.cascades):
+                # uniform cells
+                coords1 = torch.randint(self.grid_size, (M, 3), dtype=torch.int32,
+                                        device=self.density_grid[t].device)
+                indices1 = vren.morton3D(coords1).long()
+                # occupied cells
+                indices2 = torch.nonzero(self.density_grid[t,c] > density_threshold)[:, 0]
+                if len(indices2) > 0:
+                    rand_idx = torch.randint(len(indices2), (M,),
+                                             device=self.density_grid[t].device)
+                    indices2 = indices2[rand_idx]
+                    coords2 = vren.morton3D_invert(indices2.int())
+                else:
+                    indices2 = None
+                    coords2 = None
 
-            # concatenate
-            # cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
-            # torch.cuda.empty_cache()
-            # print(f'coords{coords1},{coords1.shape},{coords2},{coords2.shape}')
-            # print(f'indices{indices1},{indices1.shape},{indices2},{indices2.shape}')
+                # concatenate
+                # cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+                # torch.cuda.empty_cache()
+                # print(f'coords{coords1},{coords1.shape},{coords2},{coords2.shape}')
+                # print(f'indices{indices1},{indices1.shape},{indices2},{indices2.shape}')
 
-            if indices2 is not None:
-                cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
-            else:
-                cells += [(None, None)]
-
-        return cells
+                if indices2 is not None:
+                    cells += [(torch.cat([indices1, indices2]), torch.cat([coords1, coords2]))]
+                else:
+                    cells += [(None, None)]
+            t_cells.append(cells)
+        return t_cells
 
     @torch.no_grad()
     def mark_invisible_cells(self, K, poses, img_wh, chunk=16 ** 3):
@@ -334,7 +356,7 @@ class NGP_time_code(nn.Module):
             chunk: the chunk size to split the cells (to avoid OOM)
         """
         N_cams = poses.shape[0]
-        self.count_grid = torch.zeros_like(self.density_grid)
+        self.count_grid = torch.zeros_like(self.density_grid[0])
         w2c_R = rearrange(poses[:, :3, :3], 'n a b -> n b a')  # (N_cams, 3, 3)
         w2c_T = -w2c_R @ poses[:, :3, 3:]  # (N_cams, 3, 1)
         cells = self.get_all_cells()
@@ -361,44 +383,58 @@ class NGP_time_code(nn.Module):
                 too_near_to_any_cam = too_near_to_cam.any(0)
                 # a valid cell should be visible by at least one camera and not too close to any camera
                 valid_mask = (count > 0) & (~too_near_to_any_cam)
-                self.density_grid[c, indices[i:i + chunk]] = \
-                    torch.where(valid_mask, 0., -1.)
+                self.density_grid[:,c, indices[i:i + chunk]] = \
+                    torch.where(valid_mask, 0., -1.)  # same for all time stamps
 
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
-        density_grid_tmp = torch.zeros_like(self.density_grid)
         #print(f'updating density grid, warmup={warmup}')
 
         if warmup:  # during the first steps
             cells = self.get_all_cells()
         else:
-            cells = self.sample_uniform_and_occupied_cells(self.grid_size ** 3 // 4,
+            t_cells = self.sample_uniform_and_occupied_cells(self.grid_size ** 3 // 4,
                                                            density_threshold)
-        # infer sigmas
-        for c in range(self.cascades):
-            indices, coords = cells[c]
-            if indices is None and coords is None:
-                continue
-            s = min(2 ** (c - 1), self.scale)
-            half_grid_size = s / self.grid_size
-            xyzs_w = (coords / (self.grid_size - 1) * 2 - 1) * (s - half_grid_size)
-            # pick random position in the cell by adding noise in [-hgs, hgs]
-            xyzs_w += (torch.rand_like(xyzs_w) * 2 - 1) * half_grid_size
-            '''
-            according to the blendring together algorithm in Neural Scene Flow Fields
-            we should add the static and dynamic density together.
-            '''
-            density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w,return_feat=False)
-        print(1)
-        if erode:
-            # My own logic. decay more the cells that are visible to few cameras
-            decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)
-        self.density_grid = \
-            torch.where(self.density_grid < 0,
-                        self.density_grid,
-                        torch.maximum(self.density_grid * decay, density_grid_tmp))
-        print(2)
-        mean_density = self.density_grid[self.density_grid > 0].mean().item()
-        print(3)
-        vren.packbits(self.density_grid, min(mean_density, density_threshold),
-                      self.density_bitfield)
+        for t_ in range(self.time_grid_resolution):
+            if not warmup:
+                cells=t_cells[t_]
+            density_grid_tmp = torch.zeros_like(self.density_grid[t_])
+
+            # infer sigmas
+            for c in range(self.cascades):
+                indices, coords = cells[c]
+                if indices is None and coords is None:
+                    continue
+                s = min(2 ** (c - 1), self.scale)
+                half_grid_size = s / self.grid_size
+                xyzs_w = (coords / (self.grid_size - 1) * 2 - 1) * (s - half_grid_size)
+                # pick random position in the cell by adding noise in [-hgs, hgs]
+                xyzs_w += (torch.rand_like(xyzs_w) * 2 - 1) * half_grid_size
+                '''
+                according to the blendring together algorithm in Neural Scene Flow Fields
+                we should add the static and dynamic density together.
+                '''
+                density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w,return_feat=False)
+            #print(1)
+            if erode:
+                # My own logic. decay more the cells that are visible to few cameras
+                decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)
+            self.density_grid[t_] = \
+                torch.where(self.density_grid[t_] < 0,
+                            self.density_grid[t_],
+                            torch.maximum(self.density_grid[t_] * decay, density_grid_tmp))
+            #print(2)
+            mean_density = self.density_grid[t_][self.density_grid[t_] > 0].mean().item()
+            #print(3)
+            vren.packbits(self.density_grid[t_], min(mean_density, density_threshold),
+                          self.density_bitfield[t_])
+
+    def get_t_grid_indices(self,batched_time_stamps):
+        t_min= - self.time_scale # -1 as default
+        t_max= self.time_scale # 1 as default
+
+
+        diff = (batched_time_stamps - t_min)/(t_max-t_min) # compress into [0,1) to avoid coordinates overflow
+        diff_indx=torch.floor(diff*self.time_grid_resolution) # [0, t_resolution)
+        diff_indx = diff_indx.int()
+        return torch.clamp(diff_indx,0,self.time_grid_resolution-1)

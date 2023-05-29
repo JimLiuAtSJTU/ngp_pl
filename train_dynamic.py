@@ -27,8 +27,8 @@ from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
 from models.networks_dynamic_plus import NGP_time_code
 
-from models.rendering import render, MAX_SAMPLES
-
+#from models.rendering import render, MAX_SAMPLES
+from models.rendering_time import render,MAX_SAMPLES
 # optimizer, losses
 from apex.optimizers import FusedAdam
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -68,7 +68,7 @@ class DNeRFSystem(LightningModule):
         self.save_hyperparameters(hparams)
 
         self.warmup_steps = 256
-        self.update_interval = 16
+        self.update_interval = 16 * 10
 
         self.loss = NeRFLoss(lambda_distortion=self.hparams.distortion_loss_w)
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
@@ -86,11 +86,13 @@ class DNeRFSystem(LightningModule):
             self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
         else:
             self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
-        G = self.model.grid_size
-        self.model.register_buffer('density_grid',
-            torch.zeros(self.model.cascades, G**3))
-        self.model.register_buffer('grid_coords',
-            create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
+
+        if not isinstance(self.model,NGP_time_code):
+            G = self.model.grid_size
+            self.model.register_buffer('density_grid',
+                torch.zeros(self.model.cascades, G**3))
+            self.model.register_buffer('grid_coords',
+                create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3))
 
 
         self.process_cache={}
@@ -134,6 +136,7 @@ class DNeRFSystem(LightningModule):
         if self.hparams.ray_sampling_strategy =='batch_time':
             kwargs['time_batch'] = batch['time_batch']
             kwargs['time_batch_size'] = batch['time_batch_size']
+        #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
 
         return render(self.model, rays_o, rays_d, **kwargs)
 
@@ -171,15 +174,16 @@ class DNeRFSystem(LightningModule):
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
 
         self.test_dataset = dataset(split='test', **kwargs)
-
+    '''
+   
     def lr_scheduler_step(self, scheduler, metric):
         if metric is None:
-            '''
-            mannually overwrite the method because of ligntning cannot recognize pytorch scheduler type.
-            '''
+            # for pytorch 2.0 and ligntning 2.0
+            #mannually overwrite the method because of ligntning cannot recognize pytorch scheduler type.
             scheduler.step()
         else:
             scheduler.step(metric)
+    '''
     def configure_optimizers(self):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
@@ -362,7 +366,7 @@ if __name__ == '__main__':
     compiled_system=system
     #compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
-    #os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
@@ -376,20 +380,21 @@ if __name__ == '__main__':
                                default_hp_metric=False)
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=hparams.num_epochs//5,#min(5,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=max(1,hparams.num_epochs//5),#min(5,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,
                       accelerator='gpu',
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
-                      accumulate_grad_batches=2,
+                      accumulate_grad_batches=1,
+                      benchmark=True,
                       precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True
     #torch._dynamo.config.suppress_errors = True
-    torch.set_float32_matmul_precision('high')
+    #torch.set_float32_matmul_precision('highest')
     trainer.fit(compiled_system, ckpt_path=hparams.ckpt_path)
 
     t1=datetime.datetime.now()

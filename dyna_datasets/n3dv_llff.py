@@ -276,14 +276,19 @@ class N3DV_dataset_2(BaseDataset):
             elif self.ray_sampling_strategy == 'batch_time':
                 # randomly select across time, but with a smaller batch size
                 # to use with  time - occupancy grids
-                time_batch_size=16
+                time_batch_size=32
 
                 assert self.batch_size%time_batch_size==0
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
-                time_indices0 = np.random.choice(self.N_time, self.batch_size//time_batch_size,p=None,replace=True)
-                sample['time_batch']=time_indices0
+                time_indices0 = np.random.choice(self.N_time, time_batch_size,p=None,replace=False)
+
                 sample['time_batch_size']=time_batch_size
-                time_indices = torch.repeat_interleave(time_indices0,repeats=time_batch_size,dim=0)
+                time_indices = np.repeat(time_indices0,repeats=self.batch_size//time_batch_size,axis=0)
+                sample['time_batch']=self.times[0,time_indices0]
+                '''
+                assuming the times at different cameras are identical
+                '''
+
                 times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
             else:
