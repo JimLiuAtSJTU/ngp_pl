@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-prefix="cmp_exp_8"
+prefix="time_grids"
 
 dash="____"
 #for dir in "cut_roasted_beef" "flame_steak" "sear_steak" "flame_salmon_1" "cook_spinach"
@@ -16,25 +16,13 @@ python train_dynamic.py \
 --root_dir ./data/n3dv/$dir \
 --exp_name $prefix$dir$dash$model_type \
 --dataset_name n3dv2 \
---distortion_loss_w 0.000 \
---num_epochs 30 \
---batch_size 4096 \
+--distortion_loss_w 0.0 \
+--num_epochs 60 \
+--batch_size 8192 \
 --eval_lpips \
---regenerate 0 \
+--regenerate 1 \
  2>&1 | tee -a $prefix$dir$dash$model_type.log
 
-model_type=0
-python train_dynamic.py \
---model_type $model_type \
---root_dir ./data/n3dv/$dir \
---exp_name $prefix$dir$dash$model_type \
---dataset_name n3dv2 \
---distortion_loss_w 0.000 \
---num_epochs 30 \
---batch_size 4096 \
---eval_lpips \
---regenerate 0 \
- 2>&1 | tee -a $prefix$dir$dash$model_type.log
 
 
 done

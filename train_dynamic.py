@@ -69,6 +69,7 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = 16 * 10
+        self.distortion_loss_step = 300 * 10
 
         self.loss = NeRFLoss(lambda_distortion=self.hparams.distortion_loss_w)
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
@@ -82,9 +83,14 @@ class DNeRFSystem(LightningModule):
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
         if self.hparams.model_type==0:
             self.model = NGP_time(scale=self.hparams.scale, rgb_act=rgb_act)
+            from models.rendering import render as render_func
+            self.render_function=render_func
         elif self.hparams.model_type==-1:
             self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
         else:
+            from models.rendering_time import render as render_func
+            self.render_function=render_func
+
             self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
 
         if not isinstance(self.model,NGP_time_code):
@@ -138,7 +144,7 @@ class DNeRFSystem(LightningModule):
             kwargs['time_batch_size'] = batch['time_batch_size']
         #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
 
-        return render(self.model, rays_o, rays_d, **kwargs)
+        return self.render_function(self.model, rays_o, rays_d, **kwargs)
 
 
     def forward_inference(self,batch, split):
@@ -245,7 +251,7 @@ class DNeRFSystem(LightningModule):
 
 
         results = self(batch, split='train')
-        loss_d = self.loss(results, batch)
+        loss_d = self.loss(results, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
         if self.hparams.use_exposure:
             zero_radiance = torch.zeros(1, 3, device=self.device)
             unit_exposure_rgb = self.model.log_radiance_to_rgb(zero_radiance,

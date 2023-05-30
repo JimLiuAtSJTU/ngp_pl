@@ -52,7 +52,7 @@ class NeRFLoss(nn.Module):
         self.lambda_opacity = lambda_opacity
         self.lambda_distortion = lambda_distortion
         self.lambda_entropy = lambda_entropy
-    def forward(self, results, target, **kwargs):
+    def forward(self, results, target,use_dst_loss=False, **kwargs):
         d = {}
         d['rgb'] = (results['rgb']-target['rgb'])**2
 
@@ -69,7 +69,7 @@ class NeRFLoss(nn.Module):
         # encourage opacity to be either 0 or 1 to avoid floater
         d['opacity'] = self.lambda_opacity*(-o*torch.log(o))
 
-        if self.lambda_distortion > 0:
+        if self.lambda_distortion > 0 and use_dst_loss:
             d['distortion'] = self.lambda_distortion * \
                 DistortionLoss.apply(results['ws'], results['deltas'],
                                      results['ts'], results['rays_a'])

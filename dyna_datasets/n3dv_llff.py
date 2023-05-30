@@ -255,6 +255,42 @@ class N3DV_dataset_2(BaseDataset):
                 self.times=self.times[0:1]
             self.N_time=1
 
+    def set_t_resolution(self,reso):
+        self.t_resolution=reso
+    def stratify_sample(self):
+        '''
+        use time stratified sampling is better
+        '''
+
+        time_grid_indices0=np.arange(self.t_resolution)
+
+
+        time_indices = np.zeros(self.batch_size)
+        chunk_size = self.batch_size // self.t_resolution
+
+        #assert self.N_time % self.t_resolution ==0
+        assert self.batch_size % self.t_resolution ==0 # the function may be extended afterwards
+
+
+
+        for i in time_grid_indices0:
+
+            single_range_size=(int(np.ceil(self.N_time/self.t_resolution)))
+
+
+            if i <self.t_resolution-1: #not the last
+                time_range=np.arange(single_range_size*i,single_range_size+single_range_size*i)
+            else:
+                time_range=np.arange(single_range_size*i,self.N_time)
+
+
+            time_indices[i*chunk_size:i*chunk_size+chunk_size]=np.random.choice(time_range, chunk_size,p=None,replace=True)
+
+
+        return time_indices,chunk_size
+
+
+
     def __getitem__(self, idx):
         sample={}
         if self.split.startswith('train'):
@@ -281,7 +317,6 @@ class N3DV_dataset_2(BaseDataset):
                 assert self.batch_size%time_batch_size==0
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
                 time_indices0 = np.random.choice(self.N_time, time_batch_size,p=None,replace=False)
-
                 sample['time_batch_size']=time_batch_size
                 time_indices = np.repeat(time_indices0,repeats=self.batch_size//time_batch_size,axis=0)
                 sample['time_batch']=self.times[0,time_indices0]
