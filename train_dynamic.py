@@ -71,7 +71,9 @@ class DNeRFSystem(LightningModule):
         self.update_interval = 16 * 10
         self.distortion_loss_step = 300 * 10
 
-        self.loss = NeRFLoss(lambda_distortion=self.hparams.distortion_loss_w)
+        self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
+                             lambda_entropy=self.hparams.entropy_loss_w,
+            lambda_distortion=self.hparams.distortion_loss_w)
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
@@ -253,7 +255,7 @@ class DNeRFSystem(LightningModule):
             with torch.no_grad():
                 self.model.update_density_grid(0.01*MAX_SAMPLES/3**0.5,
                                            warmup=self.global_step<self.warmup_steps,
-                                           erode=True,
+                                           erode=bool(self.hparams.erode),
                       #                     erode=self.hparams.dataset_name=='colmap'
                                            )
 
@@ -309,6 +311,10 @@ class DNeRFSystem(LightningModule):
         self.log('lr', self.net_opt.param_groups[0]['lr'])
         self.log('train/loss', loss)
         self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
+
+        self.log('train/erode', self.hparams.erode)
+        self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
+        self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
 
 
         # ray marching samples per ray (occupied space on the ray)
@@ -420,7 +426,7 @@ if __name__ == '__main__':
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
-                              every_n_epochs=max(1,hparams.num_epochs//50),
+                              every_n_epochs=max(1,hparams.num_epochs//5),
                               save_on_train_epoch_end=True,
                               save_top_k=-1)
     callbacks = [ckpt_cb, TQDMProgressBar(refresh_rate=1)]

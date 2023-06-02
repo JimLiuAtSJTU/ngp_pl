@@ -51,6 +51,16 @@ def get_opts():
                         ''')
     parser.add_argument('--num_epochs', type=int, default=30, # 300
                         help='number of training epochs')
+    parser.add_argument('--erode', type=int, default=1, # 300
+                        choices=[0,1],
+                        help='whether perform complex erode in network')
+
+    parser.add_argument('--opacity_loss_w', type=float, default=1e-3,
+                        help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
+                        ''')
+    parser.add_argument('--entropy_loss_w', type=float, default=1e-3,
+                        help='''weight of entropy loss (see losses.py), default is 1e-3 tuned like in the static setting.
+                        ''')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='number of gpus')
     parser.add_argument('--lr', type=float, default=1e-3,
