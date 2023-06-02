@@ -272,7 +272,6 @@ class N3DV_dataset_2(BaseDataset):
         assert self.batch_size % self.t_resolution ==0 # the function may be extended afterwards
 
 
-
         for i in time_grid_indices0:
 
             single_range_size=(int(np.ceil(self.N_time/self.t_resolution)))
@@ -312,18 +311,10 @@ class N3DV_dataset_2(BaseDataset):
             elif self.ray_sampling_strategy == 'batch_time':
                 # randomly select across time, but with a smaller batch size
                 # to use with  time - occupancy grids
-                time_batch_size=32
 
-                assert self.batch_size%time_batch_size==0
                 cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
-                time_indices0 = np.random.choice(self.N_time, time_batch_size,p=None,replace=False)
-                sample['time_batch_size']=time_batch_size
-                time_indices = np.repeat(time_indices0,repeats=self.batch_size//time_batch_size,axis=0)
-                sample['time_batch']=self.times[0,time_indices0]
-                '''
-                assuming the times at different cameras are identical
-                '''
-
+                time_indices,t_trunk_size=self.stratify_sample()
+                sample['t_trunk_size']=t_trunk_size
                 times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
             else:

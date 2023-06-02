@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-prefix="time_grids"
+prefix="time_grids_fix"
 
 dash="____"
 #for dir in "cut_roasted_beef" "flame_steak" "sear_steak" "flame_salmon_1" "cook_spinach"
@@ -17,7 +17,7 @@ python train_dynamic.py \
 --exp_name $prefix$dir$dash$model_type \
 --dataset_name n3dv2 \
 --distortion_loss_w 0.0 \
---num_epochs 60 \
+--num_epochs 120 \
 --batch_size 8192 \
 --eval_lpips \
 --regenerate 1 \

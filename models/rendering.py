@@ -26,8 +26,6 @@ def render(model, rays_o, rays_d, **kwargs):
     test_time=kwargs.get('test_time', False)
     if test_time:
         render_func = __render_rays_test
-    elif kwargs.get('time_batch',None) is not None:
-        render_func = __render_rays_train_time_batch
     else:
         render_func = __render_rays_train
 

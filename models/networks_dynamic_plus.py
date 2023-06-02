@@ -25,7 +25,7 @@ class NGP_time_code(nn.Module):
         self.t_min= - self.time_scale # -1 as default
         self.t_max= self.time_scale # 1 as default
 
-        self.time_grid_resolution = 10 # may be fine-tuned
+        self.time_grid_resolution = 16 # may be fine-tuned
         self.t_center= torch.zeros(1)
         #self.t_min= -torch.ones(1)*self.time_scale
         #self.t_max= torch.ones(1)*self.time_scale
@@ -54,7 +54,7 @@ class NGP_time_code(nn.Module):
             )
         sigma_factor_dim = 1
         self.rgb_net_static = self.__get_fused_mlp(input_dims=32, output_dims=3)
-        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=128, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
+        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=64, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
@@ -109,8 +109,8 @@ class NGP_time_code(nn.Module):
             N_min = 30 #   300 frames, each part = 50framse   total, 10s.
             highest_reso=self.time_stamps*0.666 # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
-            return tcnn.Encoding(
-                n_input_dims=input_dims,
+            return tcnn.NetworkWithInputEncoding(
+                n_input_dims=input_dims,n_output_dims=32,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",
@@ -121,6 +121,13 @@ class NGP_time_code(nn.Module):
                     "per_level_scale": b,
                     "interpolation": "Linear"
                 },
+                network_config={
+                    "otype": "FullyFusedMLP",
+                    "activation": "ReLU",
+                    "output_activation": "None",
+                    "n_neurons": 64,
+                    "n_hidden_layers": 1,
+                }
             )
 
 
@@ -132,7 +139,7 @@ class NGP_time_code(nn.Module):
             b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
 
             return tcnn.NetworkWithInputEncoding(
-                n_input_dims=input_dims, n_output_dims=48,
+                n_input_dims=input_dims, n_output_dims=16,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",

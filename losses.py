@@ -54,7 +54,11 @@ class NeRFLoss(nn.Module):
         self.lambda_entropy = lambda_entropy
     def forward(self, results, target,use_dst_loss=False, **kwargs):
         d = {}
-        d['rgb'] = (results['rgb']-target['rgb'])**2
+        batch_size=results['rgb'].shape[0]
+
+        start_=target.get('start',0)
+        end_=target.get('end',batch_size)
+        d['rgb'] = torch.mean((results['rgb']-target['rgb'][start_:end_])**2)
 
         static_weight=results['static_weight']
         #print(f'weight{static_weight}')
@@ -63,11 +67,11 @@ class NeRFLoss(nn.Module):
         because we encourage static_weight -> 1
         '''
         #print(f'static weight={static_weight},{static_weight.shape}')
-        entropyloss= Element_Entropy(static_weight) #  Element_Entropy(1-static_weight)
+        entropyloss= torch.mean(Element_Entropy(static_weight)) #  Element_Entropy(1-static_weight)
 
         o = results['opacity']+1e-10
         # encourage opacity to be either 0 or 1 to avoid floater
-        d['opacity'] = self.lambda_opacity*(-o*torch.log(o))
+        d['opacity'] = torch.mean(self.lambda_opacity*(-o*torch.log(o)))
 
         if self.lambda_distortion > 0 and use_dst_loss:
             d['distortion'] = self.lambda_distortion * \
@@ -76,3 +80,36 @@ class NeRFLoss(nn.Module):
         d['entropy']=entropyloss*self.lambda_entropy
         #d['dynamic']=  torch.sum(torch.abs(1-static_weight))*self.lambda_entropy
         return d
+
+'''
+sum the loss
+and divide by num_of_t_trunks=batch_size//t_trunk_size
+to avoid concat
+'''
+def loss_sum(loss_A:(dict,None),loss_B:dict):
+    if loss_A is None:
+        return loss_B
+    assert len(loss_A.keys())==len(loss_B.keys())
+    result=loss_A
+
+    for k in loss_A.keys():
+        result[k]+=loss_B[k]
+
+    #print(f'result={result},lossA={loss_A},lossb={loss_B}')
+    return result
+
+def dict_sum(loss_A:(dict,None),loss_B:dict,keys=None):
+    if loss_A is None or len(loss_A)==0:
+        return loss_B
+    if keys is None:
+        assert len(loss_A.keys())==len(loss_B.keys())
+    result={}
+
+    if keys is not None:
+        keys_set=keys
+    else:
+        keys_set=loss_A.keys()
+    for k in keys_set:
+        result[k]=loss_A[k]+loss_B[k]
+    return result
+

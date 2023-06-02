@@ -32,7 +32,7 @@ from models.rendering_time import render,MAX_SAMPLES
 # optimizer, losses
 from apex.optimizers import FusedAdam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from losses import NeRFLoss
+from losses import NeRFLoss,loss_sum,dict_sum
 
 # metrics
 from torchmetrics import (
@@ -47,7 +47,7 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks import TQDMProgressBar, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 #from pytorch_lightning.utilities.distributed import all_gather_ddp_if_available
-
+from pytorch_lightning.callbacks import GradientAccumulationScheduler
 from utils import slim_ckpt, load_ckpt
 from dyna_datasets.ray_utils import visualize_poses
 #import warnings; warnings.filterwarnings("ignore")
@@ -115,9 +115,14 @@ class DNeRFSystem(LightningModule):
 
     def forward_train(self,batch, split):
 
-        poses = self.poses[batch['img_idxs']]
-        directions = self.directions[batch['pix_idxs']]
-        times=batch['times']
+        start_=batch['start']
+        end_=batch['end']
+
+        #for i in batch.keys():
+        #    print(i,batch[i])
+        poses = self.poses[batch['img_idxs'][start_:end_]]
+        directions = self.directions[batch['pix_idxs'][start_:end_]]
+        times=batch['times'][start_:end_]
         if self.hparams.optimize_ext:
             raise NotImplementedError
             dR = axisangle_to_R(self.dR[batch['img_idxs']])
@@ -126,6 +131,8 @@ class DNeRFSystem(LightningModule):
         #print(f'poses {self.poses},{self.poses.shape}'
         #      f'directions,{self.directions},{self.directions.shape}')
         rays_o, rays_d = get_rays(directions, poses)
+        rays_o=rays_o.contiguous()
+        rays_d=rays_d.contiguous()
         #print(f'rays_o{rays_o},{rays_o.shape}'
         #      f'rays_d{rays_d},{rays_d.shape}'
         #      f'')
@@ -140,8 +147,8 @@ class DNeRFSystem(LightningModule):
             kwargs['exposure'] = batch['exposure']
 
         if self.hparams.ray_sampling_strategy =='batch_time':
-            kwargs['time_batch'] = batch['time_batch']
-            kwargs['time_batch_size'] = batch['time_batch_size']
+            kwargs['t_grid_indx']= batch['t_grid_indx']
+
         #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
 
         return self.render_function(self.model, rays_o, rays_d, **kwargs)
@@ -178,6 +185,8 @@ class DNeRFSystem(LightningModule):
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
+
+        self.train_dataset.set_t_resolution(16)
 
         self.test_dataset = dataset(split='test', **kwargs)
     '''
@@ -223,7 +232,7 @@ class DNeRFSystem(LightningModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-                          num_workers=16,
+                          num_workers=2,
                           persistent_workers=True,
                           batch_size=None,
                           pin_memory=True)
@@ -248,30 +257,65 @@ class DNeRFSystem(LightningModule):
                       #                     erode=self.hparams.dataset_name=='colmap'
                                            )
 
+        trunk_numbers= batch['times'].shape[0]//batch['t_trunk_size']
+
+        '''
+        compute loss for each trunk. sum up, and divide by the trunk numbers
+        to avoid concat the results of trunks together (may be a lot of memory allocation, time consuming)
+        just pass the "density grids/ bits index", and slice by the start to end in the rendering function.
+        
+        https://discuss.pytorch.org/t/does-indexing-a-tensor-return-a-copy-of-it/164905
+        
+        in the rendering function, just use some of the rows
+        so that there will not be need to copy or re-create a variable
+        '''
+        summed_loss_trunk=None
+
+        psnr_sum=0
+
+        named_results={
+        }
+
+        for i in range(trunk_numbers):
+            start_=i*batch['t_trunk_size']
+            batch['start']=start_
+            end_=(i+1)*batch['t_trunk_size']
+            batch['end']=end_
+            batch['t_grid_indx']=i
+
+            results_trunk = self(batch, split='train')
 
 
-        results = self(batch, split='train')
-        loss_d = self.loss(results, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
+            summed_loss_trunk = loss_sum(loss_A=summed_loss_trunk,
+                                   loss_B=self.loss(results_trunk, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
+                                       )
+
+            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
+            with torch.no_grad():
+                psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
+
         if self.hparams.use_exposure:
+            raise NotImplementedError
             zero_radiance = torch.zeros(1, 3, device=self.device)
             unit_exposure_rgb = self.model.log_radiance_to_rgb(zero_radiance,
                                     **{'exposure': torch.ones(1, 1, device=self.device)})
-            loss_d['unit_exposure'] = \
+            summed_loss_trunk['unit_exposure'] = \
                 0.5*(unit_exposure_rgb-self.train_dataset.unit_exposure_rgb)**2
-        loss = sum(lo.mean() for lo in loss_d.values())
+        loss = sum(lo.mean() for lo in summed_loss_trunk.values()) / trunk_numbers
 
-        with torch.no_grad():
-            self.train_psnr(results['rgb'], batch['rgb'])
+        '''
+        calculate every trunk psnr and average them.
+        '''
         self.log('lr', self.net_opt.param_groups[0]['lr'])
         self.log('train/loss', loss)
-        self.log('train/entropy', loss_d['entropy'].mean()*self.loss.lambda_entropy,True)
+        self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
 
 
         # ray marching samples per ray (occupied space on the ray)
-        self.log('train/rm_s', results['rm_samples']/len(batch['rgb']), True)
+        self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
         # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
-        self.log('train/vr_s', results['vr_samples']/len(batch['rgb']), True)
-        self.log('train/psnr', self.train_psnr, True)
+        self.log('train/vr_s', named_results['vr_samples']/len(batch['rgb']), True)
+        self.log('train/psnr', psnr_sum/trunk_numbers,True)
 
         return loss
 
@@ -385,15 +429,16 @@ if __name__ == '__main__':
                                name=hparams.exp_name,
                                default_hp_metric=False)
 
+
+
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=max(1,hparams.num_epochs//5),#min(5,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=max(1,hparams.num_epochs//10),#min(5,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,
                       accelerator='gpu',
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
-                      accumulate_grad_batches=1,
                       benchmark=True,
                       precision=16)
     t0=datetime.datetime.now()
