@@ -25,7 +25,7 @@ class NGP_time_code(nn.Module):
         self.t_min= - self.time_scale # -1 as default
         self.t_max= self.time_scale # 1 as default
 
-        self.time_grid_resolution = 16 # may be fine-tuned
+        self.time_grid_resolution = 1 # may be fine-tuned
         self.t_center= torch.zeros(1)
         #self.t_min= -torch.ones(1)*self.time_scale
         #self.t_max= torch.ones(1)*self.time_scale

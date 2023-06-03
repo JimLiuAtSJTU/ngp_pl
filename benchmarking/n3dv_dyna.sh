@@ -11,7 +11,7 @@ do
 model_type=1
 echo "double loss vary"
 
-for loss_w_ in 0.01 0.1 1.0 0.0
+for loss_w_ in 0.001 0.005 0.01 0.025 0.05 0.1
 do
 echo "loss_w_"
 echo $loss_w_
@@ -24,7 +24,7 @@ python train_dynamic.py \
 --distortion_loss_w 0.0 \
 --opacity_loss_w $loss_w_ \
 --entropy_loss_w $loss_w_ \
---num_epochs 30 \
+--num_epochs 60 \
 --batch_size 8192 \
 --eval_lpips \
 --regenerate 0 \
@@ -49,7 +49,7 @@ python train_dynamic.py \
 --distortion_loss_w 0.0 \
 --opacity_loss_w 0.001 \
 --entropy_loss_w $entropy_loss_w_ \
---num_epochs 30 \
+--num_epochs 60 \
 --batch_size 8192 \
 --eval_lpips \
 --regenerate 0 \
@@ -71,7 +71,7 @@ python train_dynamic.py \
 --distortion_loss_w 0.0 \
 --opacity_loss_w $opacity_loss_w_ \
 --entropy_loss_w 0.001 \
---num_epochs 30 \
+--num_epochs 60 \
 --batch_size 8192 \
 --eval_lpips \
 --regenerate 0 \

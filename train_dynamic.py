@@ -188,11 +188,10 @@ class DNeRFSystem(LightningModule):
         self.train_dataset.batch_size = self.hparams.batch_size
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
 
-        self.train_dataset.set_t_resolution(16)
+        self.train_dataset.set_t_resolution(1)
 
         self.test_dataset = dataset(split='test', **kwargs)
     '''
-   
     def lr_scheduler_step(self, scheduler, metric):
         if metric is None:
             # for pytorch 2.0 and ligntning 2.0
@@ -315,7 +314,7 @@ class DNeRFSystem(LightningModule):
         self.log('train/erode', self.hparams.erode)
         self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
         self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
-
+        self.log('train/distortion_loss_w', self.hparams.distortion_loss_w)
 
         # ray marching samples per ray (occupied space on the ray)
         self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
