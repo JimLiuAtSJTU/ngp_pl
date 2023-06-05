@@ -52,9 +52,20 @@ class NGP_time_code(nn.Module):
                     "degree": 4,
                 },
             )
-        sigma_factor_dim = 1
-        self.rgb_net_static = self.__get_fused_mlp(input_dims=32, output_dims=3)
-        self.rgb_net_dynamic = self.__get_fused_mlp(input_dims=64, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
+        sigma_factor_dim = 0
+
+        self.xyz_t_fusion_mlp=  tcnn.Network(
+            n_input_dims=64, n_output_dims=48,
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "ReLU",
+                "n_neurons": 64,
+                "n_hidden_layers": 2,
+            }
+        )
+        self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
+        self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
@@ -102,15 +113,15 @@ class NGP_time_code(nn.Module):
                 }
             )
         elif config=='time_latent_code':
-            # out = 16*4=64dim or 8 * 8 =64dim
-            L = 8;
-            F = 8;     # time latent code length
+
+            L = 10;
+            F = 4;     # 40 dim
             log2_T = 8; # 256 hash tables.
             N_min = 30 #   300 frames, each part = 50framse   total, 10s.
             highest_reso=self.time_stamps*0.666 # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
-            return tcnn.NetworkWithInputEncoding(
-                n_input_dims=input_dims,n_output_dims=32,
+            return tcnn.Encoding(
+                n_input_dims=input_dims,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",
@@ -120,26 +131,19 @@ class NGP_time_code(nn.Module):
                     "base_resolution": N_min,
                     "per_level_scale": b,
                     "interpolation": "Linear"
-                },
-                network_config={
-                    "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": "None",
-                    "n_neurons": 64,
-                    "n_hidden_layers": 1,
                 }
             )
 
 
         elif config=='xyz_dynamic':
-            L = 16;
+            L = 12;
             F = 2;
             log2_T = 19;
             N_min = 16
             b = np.exp(np.log(2048 * self.scale / N_min) / (L - 1))
 
-            return tcnn.NetworkWithInputEncoding(
-                n_input_dims=input_dims, n_output_dims=16,
+            return tcnn.Encoding(
+                n_input_dims=input_dims,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",
@@ -149,18 +153,11 @@ class NGP_time_code(nn.Module):
                     "base_resolution": N_min,
                     "per_level_scale": b,
                     "interpolation": "Linear"
-                },
-                network_config={
-                    "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": "None",
-                    "n_neurons": 64,
-                    "n_hidden_layers": 1,
                 }
             )
         else:
             raise NotImplementedError
-    def __get_fused_mlp(self, input_dims=32, output_dims=3):
+    def __get_rgb_mlp(self, input_dims=32, output_dims=3):
 
         return tcnn.Network(
             n_input_dims=input_dims, n_output_dims=output_dims,
@@ -222,7 +219,7 @@ class NGP_time_code(nn.Module):
         if return_feat: return sigmas, h
         return sigmas
 
-    def dynamic_density(self, x, return_feat=False):
+    def dynamic_density(self, x,t, return_feat=False):
         """
         Inputs:
             x: (N, 3) xyz in [-scale, scale]
@@ -232,8 +229,13 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
         """
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
-        h = self.encoder_dynamic(x)
+        static_code = self.encoder_dynamic(x)
+        # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
+        # tcnn supports inputs within [0,1]
 
+        t = (t-self.t_min)/(self.t_max-self.t_min)
+        time_code=self.time_latent_code(t)
+        h =self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
         sigmas = F.relu(h[:, 0],inplace=False)
         if return_feat: return sigmas, h
         return sigmas
@@ -267,23 +269,18 @@ class NGP_time_code(nn.Module):
         d = self.dir_encoder((d + 1) / 2)
 
         sigma_static, h_static = self.static_density(x, return_feat=True)
+
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
 
-        sigma_dynamic, h_dyna = self.dynamic_density(x,  return_feat=True)
 
-        # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
-        # tcnn supports inputs within [0,1]
-        t = (t-self.t_min)/(self.t_max-self.t_min)
+        sigma_dynamic, h_dyna = self.dynamic_density(x,t,  return_feat=True)
 
-        time_code=self.time_latent_code(t)
-        time_code=torch.cat([d, h_dyna,time_code], 1)
+
         #print(time_code.shape)
         #print(d.shape)
         #print(h_dyna.shape)
         #exit(9)
-        rgb_dynamic = self.rgb_net_dynamic(time_code)
-        rgb_dynamic, sigma_factor=rgb_dynamic[:,:-1],rgb_dynamic[:,-1]
-        sigma_dynamic=sigma_factor*sigma_dynamic
+        rgb_dynamic = self.rgb_net_dynamic(torch.cat([d, h_dyna], 1))
         extra = {}
         sigma, rgb, weight = self.blend_together(s_sigma=sigma_static,
                                                  d_sigma=sigma_dynamic,
@@ -421,7 +418,16 @@ class NGP_time_code(nn.Module):
                 according to the blendring together algorithm in Neural Scene Flow Fields
                 we should add the static and dynamic density together.
                 '''
-                density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w,return_feat=False)
+                '''
+                generate uniform random t in the range
+                '''
+                t_interval = self.t_max - self.t_min
+                t_start_ = t_interval * (t_ / self.time_grid_resolution) + self.t_min
+                t_end = t_interval * ((t_ + 1) / self.time_grid_resolution) + self.t_min
+                rand_t = torch.rand_like(xyzs_w[:,0:1]) * (t_end - t_start_) + t_end
+
+                density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w, rand_t,
+                                                                                                  return_feat=False)
             #print(1)
             if erode:
                 # My own logic. decay more the cells that are visible to few cameras

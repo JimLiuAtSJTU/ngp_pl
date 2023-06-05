@@ -30,7 +30,7 @@ def get_opts():
                         help='whether to train in HDR-NeRF setting')
 
     # loss parameters
-    parser.add_argument('--distortion_loss_w', type=float, default=0,
+    parser.add_argument('--distortion_loss_w', type=float, default=1e-3,
                         help='''weight of distortion loss (see losses.py),
                         0 to disable (default), to enable,
                         a good value is 1e-3 for real scene and 1e-2 for synthetic scene
@@ -55,10 +55,10 @@ def get_opts():
                         choices=[0,1],
                         help='whether perform complex erode in network')
 
-    parser.add_argument('--opacity_loss_w', type=float, default=1e-3,
+    parser.add_argument('--opacity_loss_w', type=float, default=5e-3,
                         help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
                         ''')
-    parser.add_argument('--entropy_loss_w', type=float, default=1e-3,
+    parser.add_argument('--entropy_loss_w', type=float, default=5e-3,
                         help='''weight of entropy loss (see losses.py), default is 1e-3 tuned like in the static setting.
                         ''')
     parser.add_argument('--num_gpus', type=int, default=1,

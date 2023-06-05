@@ -68,7 +68,7 @@ class DNeRFSystem(LightningModule):
         self.save_hyperparameters(hparams)
 
         self.warmup_steps = 256
-        self.update_interval = 16 * 10
+        self.update_interval = 16
         self.distortion_loss_step = 300 * 10
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
@@ -172,7 +172,10 @@ class DNeRFSystem(LightningModule):
         kwargs = {'test_time': split!='train',
                   'times': times.to(self.device),
                   'random_bg': self.hparams.random_bg}
-        kwargs['trunks'] = 32768*32
+        kwargs['trunks'] = 32768*4096
+        '''
+        increase trunk size to get better inference performance!
+        '''
 
         if self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
