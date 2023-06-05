@@ -178,7 +178,7 @@ class NGP_time_code(nn.Module):
         s_rgb,d_rgb: static, dynamic
         rho: shadow factor in [0,1]. consider using a sigmoid.
         '''
-        sigma = s_sigma + d_sigma
+        sigma = s_sigma + d_sigma*(1 - rho)
 
         eps = 1e-6
         w_static = s_sigma / torch.clamp(sigma, min=eps)
@@ -189,7 +189,7 @@ class NGP_time_code(nn.Module):
         # print(f'rho{rho,}{rho.shape}')
 
         # unsqueeze
-        rgb = (w_static * (1 - rho))[:, None] * s_rgb
+        rgb = (w_static )[:, None] * s_rgb
         # print(f'rgb,{rgb.shape}')
         # print(f's_rgb,{s_rgb.shape}')
 
