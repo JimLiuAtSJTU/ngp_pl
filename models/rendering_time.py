@@ -21,9 +21,10 @@ def sigma_entropy_function(x:torch.Tensor):
     # 10 -> 5e-3
     # 15 -> 1.5e04
     # 20 -> 3.6e-6
-    y=torch.tanh(x/2)
+    y=torch.clip(x,min=0,max=10)/10.0
 
-    return (torch.special.entr(y))
+    #return 0.5-torch.abs(y-0.5)
+    return torch.special.entr(y)
 
 
 

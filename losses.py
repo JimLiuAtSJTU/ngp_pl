@@ -41,17 +41,19 @@ class DistortionLoss(torch.autograd.Function):
 
 
 def Element_Entropy(x:torch.Tensor):
-    return -x*torch.log(x)
+    y=torch.clamp(x,min=1e-7,max=1) # clamp to avoid nan
+    return -y*torch.log(y)
 
 
 
 class NeRFLoss(nn.Module):
-    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3,lambda_entropy= 0.001):
+    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3,lambda_entropy= 0.001,sigma_entropy=1e-7):
         super().__init__()
 
         self.lambda_opacity = lambda_opacity
         self.lambda_distortion = lambda_distortion
         self.lambda_entropy = lambda_entropy
+        self.lambda_sigma_entropy = sigma_entropy
     def forward(self, results, target,use_dst_loss=False, **kwargs):
         d = {}
         batch_size=results['rgb'].shape[0]
@@ -72,8 +74,8 @@ class NeRFLoss(nn.Module):
         o = results['opacity']+1e-10
         sigma_entropy = results['sigma_entropy']
         # encourage opacity to be either 0 or 1 to avoid floater
-        #d['opacity'] = torch.mean((-o*torch.log(o)))*self.lambda_opacity
-        d['sigma_entropy'] = torch.mean((sigma_entropy))*self.lambda_opacity
+        d['opacity'] = torch.mean((-o*torch.log(o)))*self.lambda_opacity
+        d['sigma_entropy'] = torch.mean((sigma_entropy))*self.lambda_sigma_entropy
 
         if self.lambda_distortion > 0 and use_dst_loss:
             d['distortion'] = self.lambda_distortion * \

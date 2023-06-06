@@ -236,7 +236,7 @@ class NGP_time_code(nn.Module):
         t = (t-self.t_min)/(self.t_max-self.t_min)
         time_code=self.time_latent_code(t)
         h =self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
-        sigmas = F.relu(h[:, 0],inplace=False)
+        sigmas = TruncExp.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
 

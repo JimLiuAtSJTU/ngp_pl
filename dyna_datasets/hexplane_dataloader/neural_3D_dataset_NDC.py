@@ -451,7 +451,8 @@ class Neural3D_NDC_Dataset(Dataset):
 
                 importances_[i] = importances_[i]/torch.sum(importances_[i])
                 #sums.append(torch.sum(importances_[i]))
-
+            #std_mean = torch.std_mean(importances_[:,1:,:])
+            #importances_[:,0,:] = std_mean[0]/4 + std_mean[1] # set the initial frame > average importance , to assure more importance on static scene
             t1=time.time()
 
             print(f'importance calculated. time elapse={t1-t0}')
@@ -462,7 +463,7 @@ class Neural3D_NDC_Dataset(Dataset):
             self.all_rgbs = all_imgs.view(N_cam,N_time*N_rays,C)#
             self.all_times = all_times.view(N_cam, N_time, 1)
             self.all_rays = all_rays.reshape(N_cam, N_rays, 6)
-            self.all_importances=importances_.view(N_cam,N_time*N_rays,1)#
+            self.all_importances=importances_.view(N_cam,N_time,N_rays,1)#
 
             # using pytorch to perform importance sampling seems to have some problems...
             # consider change to numpy and use double precision.

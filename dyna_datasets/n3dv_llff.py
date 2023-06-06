@@ -1,3 +1,4 @@
+import datetime
 import warnings
 
 import torch
@@ -185,11 +186,11 @@ class N3DV_dataset_2(BaseDataset):
 
         self.importance=None
 
-        self.set_useful_data(useful_data)
+        self.setup_dataset(useful_data)
 
 
 
-    def set_useful_data(self,useful_data):
+    def setup_dataset(self, useful_data):
         self.K=useful_data['K']
         self.poses=useful_data['poses']
 
@@ -224,6 +225,7 @@ class N3DV_dataset_2(BaseDataset):
         self.directions = get_ray_directions(h, w, self.K)
 
         self.check_dimensions()
+        self.current_epoch=0
     def check_dimensions(self):
         self.N_cam=self.poses.shape[0]
         assert self.poses.shape==(self.N_cam,3,4)
@@ -237,7 +239,14 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=self.times.shape[1]
 
             assert self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
-            assert self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1) or self.importance is None
+            try:
+                assert self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1) or self.importance is None
+            except:
+                self.importance=self.importance.view(self.N_cam,self.N_time, self.W * self.H, 1)
+            if isinstance(self.importance,torch.Tensor):
+                self.importance=self.importance.numpy().astype(np.float64)
+            self.importance=np.power(self.importance,0.8)
+            self.importance/=np.sum(self.importance)
 
         else:
             self.N_time=len(self.times)
@@ -288,89 +297,196 @@ class N3DV_dataset_2(BaseDataset):
 
         return time_indices,chunk_size
 
+    def stratify_importance_sample(self):
+        '''
+        use time stratified sampling is better
+        '''
+        # not clearly tested
+        raise  NotImplementedError
+        sample={}
+        time_grid_indices0=np.arange(self.t_resolution)
 
+
+        cam_idxs = np.zeros(self.batch_size)
+        time_indices = np.zeros(self.batch_size)
+        ray_indices = np.zeros(self.batch_size)
+
+        chunk_size = self.batch_size // self.t_resolution
+
+        #assert self.N_time % self.t_resolution ==0
+        assert self.batch_size % self.t_resolution ==0 # the function may be extended afterwards
+
+        for i in time_grid_indices0:
+
+            single_range_size=(int(np.ceil(self.N_time/self.t_resolution)))
+
+
+            if i <self.t_resolution-1: #not the last
+                time_range=np.arange(single_range_size*i,single_range_size+single_range_size*i)
+            else:
+                time_range=np.arange(single_range_size*i,self.N_time)
+
+            '''
+            self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1)
+            '''
+
+            time_grid_importance = self.importance[:,time_range[0]:time_range[-1],:,:]
+            time_grid_importance=time_grid_importance.view(self.N_cam,time_range[-1]-time_range[0],self.W*self.H)
+            time_grid_importance=time_grid_importance/np.sum(time_grid_importance)
+            flatten_improtance = time_grid_importance.view(self.N_cam * (time_range[-1]-time_range[0]) * self.W * self.H)
+            flatten_indices = np.random.choice(a=flatten_improtance.shape[0], size=chunk_size, replace=False,
+                                               p=flatten_improtance)
+
+            structured_rgb = self.rays_rgbs[self.N_cam,time_range[0]:time_range[-1], self.W * self.H, 3]\
+                .view(self.N_cam, time_range[-1]-time_range[0], self.W * self.H, 3)
+            structured_rgb_indices = np.unravel_index(indices=flatten_indices, shape=structured_rgb.shape[:3])
+            cam_idxs_trunk, time_indices_trunk, ray_indices_trunk = \
+                structured_rgb_indices[0], structured_rgb_indices[1], structured_rgb_indices[2]
+
+            cam_idxs[i*chunk_size:i*chunk_size+chunk_size] = cam_idxs_trunk
+            time_indices[i*chunk_size:i*chunk_size+chunk_size] = time_indices_trunk + time_range[0]
+            ray_indices[i*chunk_size:i*chunk_size+chunk_size] = ray_indices_trunk
+
+        times = self.times[cam_idxs, time_indices]
+        rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
+
+        tmp = {'img_idxs': cam_idxs, 'pix_idxs': ray_indices,
+               'times': times,
+               'rgb': rgbs[:, :3]}
+        sample.update(tmp)
+
+        return time_indices,chunk_size
+
+
+    def generate_importance_sampling_indices(self,epochs=10):
+        t0 = datetime.datetime.now()
+
+        self.importance_sampling_cache_epoches=epochs
+        flatten_improtance = self.importance.reshape(self.N_cam * self.N_time * self.W * self.H)
+        print(flatten_improtance.shape)
+        print(flatten_improtance.flags)
+        print(np.sum(flatten_improtance))
+        print(f'start sampling, size= {self.N_time*epochs}*{self.batch_size//2}')
+
+        flatten_indices = np.random.choice(flatten_improtance.shape[0], size=self.batch_size//2 * self.N_time*epochs,
+                                           p=flatten_improtance)
+        t1 = datetime.datetime.now()
+
+        print(f'end sampling, time epalse ={(t1 - t0).seconds}')
+
+        self.cached_faltten_indices=(flatten_indices).reshape(epochs*self.N_time,self.batch_size//2)
 
     def __getitem__(self, idx):
         sample={}
         if self.split.startswith('train'):
             '''
             self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
-            self.importance.shape == (self.N_cam,self.N_time* self.W * self.H, 1)
+            self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1)
             self.times: [N_time] tensor
-            
             '''
-            # training pose is retrieved in train.py
-            if self.ray_sampling_strategy == 'all_time': # randomly select across time
-                '''
-                the rendering module is focusd on "ray" instead of "3d point"
-                we only need to keep that every ray matches its time stamp. 
-                '''
-                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
-                time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
-                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
-            elif self.ray_sampling_strategy == 'batch_time':
-                # randomly select across time, but with a smaller batch size
-                # to use with  time - occupancy grids
 
-                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
-                time_indices,t_trunk_size=self.stratify_sample()
-                sample['t_trunk_size']=t_trunk_size
-                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+            if self.ray_sampling_strategy == 'importance_time_batch':
+
+                flatten_indices=self.cached_faltten_indices[idx + self.current_epoch*len(self),:]
+                structured_rgb=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
+                structured_rgb_indices=np.unravel_index(indices=flatten_indices,shape=structured_rgb.shape[:3])
+                cam_idxs, time_indices, ray_indices =\
+                    structured_rgb_indices[0],structured_rgb_indices[1],structured_rgb_indices[2]
+
+                cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size//2, p=None, replace=True)
+                time_indices_2 = np.random.choice(self.N_time, self.batch_size//2, p=None, replace=True)
+                ray_indices_2 = np.random.choice(self.W*self.H,self.batch_size//2,p=None,replace=True)
+
+                cam_idxs=np.concatenate([cam_idxs,cam_idxs_2],axis=0)
+                time_indices=np.concatenate([time_indices,time_indices_2],axis=0)
+                ray_indices=np.concatenate([ray_indices,ray_indices_2],axis=0)
+
+
+                times=self.times[cam_idxs,time_indices]
+                sample['t_trunk_size'] = self.batch_size
+                rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
+
+                tmp = {'img_idxs': cam_idxs, 'pix_idxs': ray_indices,
+                          'times':times,
+                          'rgb': rgbs[:, :3]}
+                sample.update(tmp)
 
             else:
-                assert self.ray_sampling_strategy == 'same_time' # randomly select ONE time stamp
-                cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
 
-                time_indices = np.random.choice(self.N_time,1)
-                times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
 
-                #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
 
-            if STATIC_ONLY:
+                # training pose is retrieved in train.py
+                if self.ray_sampling_strategy == 'all_time': # randomly select across time
+                    '''
+                    the rendering module is focusd on "ray" instead of "3d point"
+                    we only need to keep that every ray matches its time stamp. 
+                    '''
+                    cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+                    time_indices = np.random.choice(self.N_time, self.batch_size,p=None,replace=True)
+                    times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+                elif self.ray_sampling_strategy == 'batch_time':
+                    # randomly select across time, but with a smaller batch size
+                    # to use with  time - occupancy grids
+
+                    cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+                    time_indices,t_trunk_size=self.stratify_sample()
+                    sample['t_trunk_size']=t_trunk_size
+                    times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
+                else:
+                    assert self.ray_sampling_strategy == 'same_time' # randomly select ONE time stamp
+                    cam_idxs = np.random.choice(self.N_cam, self.batch_size,p=None,replace=True)
+
+                    time_indices = np.random.choice(self.N_time,1)
+                    times =self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
+                    #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
+
+                if STATIC_ONLY:
+                    '''
+                    only have one time stamp. the index is zero.
+                    Does not mean the time value is zero!
+                    '''
+                    time_indices = np.zeros_like(time_indices) #should be zero-indices!
+                    times = self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+
+
+
+
+                # importance sampling seems to comsume huge amount of memory...
+                # consider implement it in a memory-efficient way
+                #sampling_probs=self.importance.view(self.N_cam,self.N_time,self.H*self.W,1)
+                #sampling_probs=sampling_probs[:,time_indices]
+                #sampling_probs=sampling_probs[:]
+
+                #sampling_probs=sampling_probs.numpy().astype(np.float64)
+
+                #ray_intices=np.zeros(self.batch_size,dtype=int)
+                #for i in range(self.batch_size):
+                #    ray_intices[i]=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
+
+                ray_indices = np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
+
+                rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
+
+
+                #print(f'times {times}')
+
+                # randomly select pixels
                 '''
-                only have one time stamp. the index is zero.
-                Does not mean the time value is zero!
+                pixel indices is to get directions.
                 '''
-                time_indices = np.zeros_like(time_indices) #should be zero-indices!
-                times = self.times[cam_idxs,time_indices] # actually, for each camera it's identical
+                pix_idxs = ray_indices
 
 
+                #breakpoint()
 
-
-            # importance sampling seems to comsume huge amount of memory...
-            # consider implement it in a memory-efficient way
-            #sampling_probs=self.importance.view(self.N_cam,self.N_time,self.H*self.W,1)
-            #sampling_probs=sampling_probs[:,time_indices]
-            #sampling_probs=sampling_probs[:]
-
-            #sampling_probs=sampling_probs.numpy().astype(np.float64)
-
-            #ray_intices=np.zeros(self.batch_size,dtype=int)
-            #for i in range(self.batch_size):
-            #    ray_intices[i]=np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
-
-            ray_indices = np.random.choice(self.W*self.H,self.batch_size,p=None,replace=True)
-
-            rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs, time_indices, ray_indices]
-
-
-            #print(f'times {times}')
-
-            # randomly select pixels
-            '''
-            pixel indices is to get directions.
-            '''
-            pix_idxs = ray_indices
-
-
-            #breakpoint()
-
-            #print(f'im {cam_idxs.shape},pix{pix_idxs.shape},times{times.shape},rgb{rgbs.shape}')
-            tmp = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
-                      'times':times,
-                      'rgb': rgbs[:, :3]}
-            sample.update(tmp)
-            #print(sample)
+                #print(f'im {cam_idxs.shape},pix{pix_idxs.shape},times{times.shape},rgb{rgbs.shape}')
+                tmp = {'img_idxs': cam_idxs, 'pix_idxs': pix_idxs,
+                          'times':times,
+                          'rgb': rgbs[:, :3]}
+                sample.update(tmp)
+                #print(sample)
 
         else:
 

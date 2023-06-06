@@ -30,7 +30,7 @@ def get_opts():
                         help='whether to train in HDR-NeRF setting')
 
     # loss parameters
-    parser.add_argument('--distortion_loss_w', type=float, default=1e-3,
+    parser.add_argument('--distortion_loss_w', type=float, default=5e-4,
                         help='''weight of distortion loss (see losses.py),
                         0 to disable (default), to enable,
                         a good value is 1e-3 for real scene and 1e-2 for synthetic scene
@@ -39,12 +39,16 @@ def get_opts():
                         help='random seed')
     parser.add_argument('--regenerate', type=int, default=0,choices=[0,1] ,
                         help='whether regenerate dataset, 0 for false, 1 for true')
+    parser.add_argument('--cache_importance_epochs', type=int, default=10 ,
+                        help='set the cache size of importance sampled indices. '
+                             'default is cache the array with size'
+                             ' corresponding to  10 epochs.')
 
     # training options
     parser.add_argument('--batch_size', type=int, default=4096, #8192
                         help='number of rays in a batch')
-    parser.add_argument('--ray_sampling_strategy', type=str, default='batch_time',
-                        choices=['all_images', 'same_image','all_time','batch_time','same_time'],
+    parser.add_argument('--ray_sampling_strategy', type=str, default='importance_time_batch',
+                        choices=['all_images', 'same_image','all_time','batch_time','same_time','importance_time_batch'],
                         help='''
                         all_images: uniformly from all pixels of ALL images
                         same_image: uniformly from all pixels of a SAME image
@@ -54,14 +58,14 @@ def get_opts():
     parser.add_argument('--erode', type=int, default=1, # 300
                         choices=[0,1],
                         help='whether perform complex erode in network')
-    parser.add_argument('--sigma_entropy_loss_w', type=float, default=1e-5,
+    parser.add_argument('--sigma_entropy_loss_w', type=float, default=1e-4,
                         help='''weight of sigma_entropy loss (see losses.py), default is 1e-5 to see the entropy
                         ''')
 
     parser.add_argument('--opacity_loss_w', type=float, default=5e-3,
                         help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
                         ''')
-    parser.add_argument('--entropy_loss_w', type=float, default=5e-4,
+    parser.add_argument('--entropy_loss_w', type=float, default=5e-3,
                         help='''weight of entropy loss (see losses.py), default is 1e-3 tuned like in the static setting.
                         ''')
     parser.add_argument('--num_gpus', type=int, default=1,

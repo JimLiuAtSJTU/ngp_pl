@@ -69,10 +69,11 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = 16
-        self.distortion_loss_step = 300 * 10
+        self.distortion_loss_step = 300
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
+                             sigma_entropy=self.hparams.sigma_entropy_loss_w,
             lambda_distortion=self.hparams.distortion_loss_w)
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
@@ -148,7 +149,7 @@ class DNeRFSystem(LightningModule):
         if self.hparams.use_exposure:
             kwargs['exposure'] = batch['exposure']
 
-        if self.hparams.ray_sampling_strategy =='batch_time':
+        if self.hparams.ray_sampling_strategy in ['batch_time','importance_time_batch' ]:
             kwargs['t_grid_indx']= batch['t_grid_indx']
 
         #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
@@ -190,7 +191,8 @@ class DNeRFSystem(LightningModule):
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
-
+        if self.hparams.ray_sampling_strategy=='importance_time_batch':
+            self.train_dataset.generate_importance_sampling_indices(self.hparams.cache_importance_epochs)
         self.train_dataset.set_t_resolution(1)
 
         self.test_dataset = dataset(split='test', **kwargs)
@@ -236,7 +238,7 @@ class DNeRFSystem(LightningModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-                          num_workers=2,
+                          num_workers=8,
                           persistent_workers=True,
                           batch_size=None,
                           pin_memory=True)
@@ -251,6 +253,14 @@ class DNeRFSystem(LightningModule):
         self.model.mark_invisible_cells(self.train_dataset.K.to(self.device),
                                         self.poses,
                                         self.train_dataset.img_wh)
+    def training_epoch_end(self, outputs):
+        if self.hparams.ray_sampling_strategy != 'importance_time_batch':
+            return
+        self.train_dataset.current_epoch=self.current_epoch+1
+        if (self.current_epoch+1)%self.train_dataset.importance_sampling_cache_epoches==0:
+            if (self.current_epoch + 1)<self.hparams.num_epochs:
+                # not the last epoch end
+                self.train_dataset.generate_importance_sampling_indices(epochs=self.hparams.cache_importance_epochs)
 
     def training_step(self, batch, batch_nb, *args):
         if self.global_step%self.update_interval == 0:
@@ -313,8 +323,10 @@ class DNeRFSystem(LightningModule):
         self.log('lr', self.net_opt.param_groups[0]['lr'])
         self.log('train/loss', loss)
         self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
-        self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_opacity,True)
-
+        self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_sigma_entropy,True)
+        self.log('train/opacity', summed_loss_trunk['opacity'].mean()/self.loss.lambda_opacity,True)
+        if 'distortion' in summed_loss_trunk:
+            self.log('train/distortion', summed_loss_trunk['distortion'].mean() / self.loss.lambda_distortion, True)
         self.log('train/erode', self.hparams.erode)
         self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
         self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
