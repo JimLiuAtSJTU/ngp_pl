@@ -70,8 +70,10 @@ class NeRFLoss(nn.Module):
         entropyloss= torch.mean(Element_Entropy(static_weight)) #  Element_Entropy(1-static_weight)
 
         o = results['opacity']+1e-10
+        sigma_entropy = results['sigma_entropy']
         # encourage opacity to be either 0 or 1 to avoid floater
-        d['opacity'] = torch.mean(self.lambda_opacity*(-o*torch.log(o)))
+        #d['opacity'] = torch.mean((-o*torch.log(o)))*self.lambda_opacity
+        d['sigma_entropy'] = torch.mean((sigma_entropy))*self.lambda_opacity
 
         if self.lambda_distortion > 0 and use_dst_loss:
             d['distortion'] = self.lambda_distortion * \

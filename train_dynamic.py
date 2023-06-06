@@ -313,6 +313,7 @@ class DNeRFSystem(LightningModule):
         self.log('lr', self.net_opt.param_groups[0]['lr'])
         self.log('train/loss', loss)
         self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
+        self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_opacity,True)
 
         self.log('train/erode', self.hparams.erode)
         self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)

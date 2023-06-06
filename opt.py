@@ -54,11 +54,14 @@ def get_opts():
     parser.add_argument('--erode', type=int, default=1, # 300
                         choices=[0,1],
                         help='whether perform complex erode in network')
+    parser.add_argument('--sigma_entropy_loss_w', type=float, default=1e-5,
+                        help='''weight of sigma_entropy loss (see losses.py), default is 1e-5 to see the entropy
+                        ''')
 
-    parser.add_argument('--opacity_loss_w', type=float, default=5e-2,
+    parser.add_argument('--opacity_loss_w', type=float, default=5e-3,
                         help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
                         ''')
-    parser.add_argument('--entropy_loss_w', type=float, default=5e-2,
+    parser.add_argument('--entropy_loss_w', type=float, default=5e-4,
                         help='''weight of entropy loss (see losses.py), default is 1e-3 tuned like in the static setting.
                         ''')
     parser.add_argument('--num_gpus', type=int, default=1,

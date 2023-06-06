@@ -8,6 +8,26 @@ MAX_SAMPLES = 1024
 NEAR_DISTANCE = 0.01
 
 
+
+
+
+
+def sigma_entropy_function(x:torch.Tensor):
+    # 0 -> 0
+    # 0.5 -> 0.5
+    # 1.34 -> 0.7
+    # 3.24 -> 0.4
+    # 5 -> 0.155
+    # 10 -> 5e-3
+    # 15 -> 1.5e04
+    # 20 -> 3.6e-6
+    y=torch.tanh(x/2)
+
+    return (torch.special.entr(y))
+
+
+
+
 @torch.cuda.amp.autocast()
 def render(model, rays_o, rays_d, **kwargs):
     """
@@ -229,6 +249,8 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     results['rgb'] = results['rgb'] + \
                      rgb_bg*rearrange(1-results['opacity'], 'n -> n 1')
     results.update(extra)
+
+    results['sigma_entropy'] = sigma_entropy_function(sigmas)
 
 
     return results

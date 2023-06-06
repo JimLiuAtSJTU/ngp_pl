@@ -268,11 +268,12 @@ class NGP_time_code(nn.Module):
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
 
+        # use exp as activation, initialized to be 1
         sigma_static, h_static = self.static_density(x, return_feat=True)
 
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
 
-
+        # use relu as activation, initialized to be 0
         sigma_dynamic, h_dyna = self.dynamic_density(x,t,  return_feat=True)
 
 
