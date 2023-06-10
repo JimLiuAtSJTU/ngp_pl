@@ -65,6 +65,10 @@ def get_opts():
     parser.add_argument('--opacity_loss_w', type=float, default=5e-3,
                         help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
                         ''')
+    parser.add_argument('--opacity_loss_dynamic_w', type=float, default=5e-7,
+                        help='''weight of dynamic opacity loss (see losses.py), default is 1e-3 as kwea123.
+                        ''')
+
     parser.add_argument('--entropy_loss_w', type=float, default=5e-3,
                         help='''weight of entropy loss (see losses.py), default is 1e-3 tuned like in the static setting.
                         ''')

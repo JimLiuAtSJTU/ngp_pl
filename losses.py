@@ -47,13 +47,14 @@ def Element_Entropy(x:torch.Tensor):
 
 
 class NeRFLoss(nn.Module):
-    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3,lambda_entropy= 0.001,sigma_entropy=1e-7):
+    def __init__(self, lambda_opacity=1e-3, lambda_distortion=1e-3,lambda_entropy= 0.001,sigma_entropy=1e-7,lambda_opac_dyna=1e-7):
         super().__init__()
 
         self.lambda_opacity = lambda_opacity
         self.lambda_distortion = lambda_distortion
         self.lambda_entropy = lambda_entropy
         self.lambda_sigma_entropy = sigma_entropy
+        self.lambda_opac_dyna=lambda_opac_dyna
     def forward(self, results, target,use_dst_loss=False, **kwargs):
         d = {}
         batch_size=results['rgb'].shape[0]
@@ -72,9 +73,14 @@ class NeRFLoss(nn.Module):
         entropyloss= torch.mean(Element_Entropy(static_weight)) #  Element_Entropy(1-static_weight)
 
         o = results['opacity']+1e-10
+
+        opacity_dynamic=results['opacity_dynamic']
+
         sigma_entropy = results['sigma_entropy']
         # encourage opacity to be either 0 or 1 to avoid floater
         d['opacity'] = torch.mean((-o*torch.log(o)))*self.lambda_opacity
+        d['opacity_dynamic'] =  torch.mean((-opacity_dynamic*torch.log(opacity_dynamic)))*self.lambda_opac_dyna/1000
+
         d['sigma_entropy'] = torch.mean((sigma_entropy))*self.lambda_sigma_entropy
 
         if self.lambda_distortion > 0 and use_dst_loss:

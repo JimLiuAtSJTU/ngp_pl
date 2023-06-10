@@ -282,7 +282,10 @@ class NGP_time_code(nn.Module):
         #print(h_dyna.shape)
         #exit(9)
         rgb_dynamic = self.rgb_net_dynamic(torch.cat([d, h_dyna], 1))
-        extra = {}
+        extra = {
+            'rgb_dynamic':rgb_dynamic[:,:3],
+            'sigma_dynamic':sigma_dynamic,
+        }
         sigma, rgb, weight = self.blend_together(s_sigma=sigma_static,
                                                  d_sigma=sigma_dynamic,
                                                  s_rgb=rgb_static,

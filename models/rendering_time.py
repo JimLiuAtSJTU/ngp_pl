@@ -1,6 +1,6 @@
 import torch
 from .custom_functions import \
-    RayAABBIntersector, RayMarcher, VolumeRenderer
+    RayAABBIntersector, RayMarcher, VolumeRenderer,VolumeRenderer_2
 from einops import rearrange
 import vren
 
@@ -238,17 +238,29 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     results['depth'], results['rgb'], results['ws']) = \
         VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
                              rays_a, kwargs.get('T_threshold', 1e-4))
+
+    (results['vr_samples_dynamic'], results['opacity_dynamic'],
+    results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
+        VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
+                             rays_a, kwargs.get('T_threshold', 1e-4))
+
+
+
     results['rays_a'] = rays_a
 
     if exp_step_factor==0: # synthetic
         rgb_bg = torch.ones(3, device=rays_o.device)
+        results['rgb'] = results['rgb'] + \
+                         rgb_bg * rearrange(1 - results['opacity'], 'n -> n 1')
+
     else: # real
         if kwargs.get('random_bg', False):
             rgb_bg = torch.rand(3, device=rays_o.device)
+            results['rgb'] = results['rgb'] + \
+                             rgb_bg * rearrange(1 - results['opacity'], 'n -> n 1')
+
         else:
             rgb_bg = torch.zeros(3, device=rays_o.device)
-    results['rgb'] = results['rgb'] + \
-                     rgb_bg*rearrange(1-results['opacity'], 'n -> n 1')
     results.update(extra)
 
     results['sigma_entropy'] = sigma_entropy_function(sigmas)

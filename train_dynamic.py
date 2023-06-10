@@ -54,13 +54,26 @@ from dyna_datasets.ray_utils import visualize_poses
 
 
 visualize_poses_flag=False
-
+import warnings
 def depth2img(depth):
     depth = (depth-depth.min())/(depth.max()-depth.min())
     depth_img = cv2.applyColorMap((depth*255).astype(np.uint8),
                                   cv2.COLORMAP_TURBO)
 
     return depth_img
+
+import re
+def dir_to_indx(dir_str):
+    pattern=re.compile(r'\d+')
+    indx=pattern.search(dir_str)
+    indx_start_in_str=indx.start()
+    assert isinstance(indx_start_in_str,int)
+
+    prefix=dir_str[:indx_start_in_str]
+
+    indx_int=int(indx.group())
+
+    return indx_int,prefix
 
 class DNeRFSystem(LightningModule):
     def __init__(self, hparams):
@@ -74,6 +87,7 @@ class DNeRFSystem(LightningModule):
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
                              sigma_entropy=self.hparams.sigma_entropy_loss_w,
+                             lambda_opac_dyna=self.hparams.opacity_loss_dynamic_w,
             lambda_distortion=self.hparams.distortion_loss_w)
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
@@ -106,6 +120,8 @@ class DNeRFSystem(LightningModule):
 
         self.process_cache={}
         self.process_cache['validation_epoch']=[]
+        self.use_trunk_to_avoid_OOM=False
+        self.val_version_dir=None
     def forward(self, batch, split):
 
         if split=='train':
@@ -173,7 +189,6 @@ class DNeRFSystem(LightningModule):
         kwargs = {'test_time': split!='train',
                   'times': times.to(self.device),
                   'random_bg': self.hparams.random_bg}
-        kwargs['trunks'] = 32768*4096
         '''
         increase trunk size to get better inference performance!
         '''
@@ -182,7 +197,19 @@ class DNeRFSystem(LightningModule):
             kwargs['exp_step_factor'] = 1/256
         if self.hparams.use_exposure:
             kwargs['exposure'] = batch['exposure']
-        return render(self.model, rays_o[:], rays_d[:], **kwargs)
+        try:
+            assert not self.use_trunk_to_avoid_OOM
+            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
+        except:
+            warnings.warn('use trunks to avoid OOM! performance may be downgraded!')
+            kwargs['trunks'] = 32768 * 4096
+            '''
+            increase trunk size to get better inference performance!
+            '''
+            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
+            self.use_trunk_to_avoid_OOM = True
+        return result_
+
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
@@ -196,15 +223,6 @@ class DNeRFSystem(LightningModule):
         self.train_dataset.set_t_resolution(1)
 
         self.test_dataset = dataset(split='test', **kwargs)
-    '''
-    def lr_scheduler_step(self, scheduler, metric):
-        if metric is None:
-            # for pytorch 2.0 and ligntning 2.0
-            #mannually overwrite the method because of ligntning cannot recognize pytorch scheduler type.
-            scheduler.step()
-        else:
-            scheduler.step(metric)
-    '''
     def configure_optimizers(self):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
@@ -325,6 +343,8 @@ class DNeRFSystem(LightningModule):
         self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
         self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_sigma_entropy,True)
         self.log('train/opacity', summed_loss_trunk['opacity'].mean()/self.loss.lambda_opacity,True)
+        self.log('train/opacity_dynamic', summed_loss_trunk['opacity_dynamic'].mean()/self.loss.lambda_opac_dyna,True)
+
         if 'distortion' in summed_loss_trunk:
             self.log('train/distortion', summed_loss_trunk['distortion'].mean() / self.loss.lambda_distortion, True)
         self.log('train/erode', self.hparams.erode)
@@ -343,8 +363,35 @@ class DNeRFSystem(LightningModule):
     def on_validation_start(self):
         torch.cuda.empty_cache()
         if not self.hparams.no_save_test:
-            self.val_dir = f'results/dynamic/{self.hparams.dataset_name}/{self.hparams.exp_name}'
-            os.makedirs(self.val_dir, exist_ok=True)
+            val_dir_root = f'results/dynamic/{self.hparams.dataset_name}/{self.hparams.exp_name}'
+            os.makedirs(val_dir_root, exist_ok=True)
+            sub_paths = os.listdir(val_dir_root)
+            indices = []
+            if len(sub_paths) == 0:
+                new_indx = 0
+            else:
+                for path_ in sub_paths:
+                    if os.path.isdir(os.path.join(val_dir_root,path_)):
+                        indx, prefix = dir_to_indx(path_)
+
+                        indices += [indx]
+                try:
+                    max_indx = max(indices)
+                    new_indx = max_indx + 1
+
+                except:
+
+                    new_indx = 0
+            prefix = 'version_'
+
+            if self.val_version_dir is None:
+                self.val_version_dir = prefix + f'{new_indx}'
+
+
+
+            self.val_dir = os.path.join(val_dir_root, self.val_version_dir, f'epoch_{self.current_epoch}')
+            os.makedirs(self.val_dir, exist_ok=False)
+            print(f'validation result of epoch{self.current_epoch} will be saved at {self.val_dir}')
 
     def validation_step(self, batch, batch_nb):
         rgb_gt = batch['rgb']
@@ -386,13 +433,11 @@ class DNeRFSystem(LightningModule):
             rgb_pred = rearrange(results['rgb'].cpu().numpy(), '(h w) c -> h w c', h=h)
             rgb_pred = (rgb_pred*255).astype(np.uint8)
             depth = depth2img(rearrange(results['depth'].cpu().numpy(), '(h w) -> h w', h=h))
-            imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}.png'), rgb_pred)
-            imageio.imsave(os.path.join(self.val_dir, f'depth_{idx:03d}.png'), depth)
+            imageio.imsave(os.path.join(self.val_dir, f'rgb_{idx:04d}.png'), rgb_pred)
+            imageio.imsave(os.path.join(self.val_dir, f'depth_{idx:04d}.png'), depth)
 
         self.process_cache['validation_epoch'].append(logs)
-
         return logs
-
     def on_validation_epoch_end(self):
         outputs=self.process_cache['validation_epoch']
         psnrs = torch.stack([x['psnr'] for x in outputs])
@@ -408,13 +453,25 @@ class DNeRFSystem(LightningModule):
             mean_lpips = lpipss.mean()
             self.log('test/lpips_vgg', mean_lpips)
 
+
+        imgs = sorted(glob.glob(os.path.join(self.val_dir, 'rgb_*.png')))
+
+
+        imageio.mimsave(os.path.join(self.val_dir, 'rgb.mp4'),
+                        [imageio.v2.imread(img) for img in imgs],
+                        fps=30, macro_block_size=1)
+        imgs_depth = sorted(glob.glob(os.path.join(self.val_dir, 'depth_*.png')))
+
+        imageio.mimsave(os.path.join(self.val_dir, 'depth.mp4'),
+                        [imageio.v2.imread(img) for img in imgs_depth],
+                        fps=30, macro_block_size=1)
+
         #self.process_cache.pop()
     def get_progress_bar_dict(self):
         # don't show the version number
         items = super().get_progress_bar_dict()
         items.pop("v_num", None)
         return items
-
 def print_time_elapse(t0,t1,prefix=''):
     dt = (t1 - t0).seconds
     dmins = np.floor(dt / 60)
@@ -436,7 +493,7 @@ if __name__ == '__main__':
     system = DNeRFSystem(hparams)
     compiled_system=system
 
-    compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
+    #compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
