@@ -253,7 +253,7 @@ class DNeRFSystem(LightningModule):
         self.model.mark_invisible_cells(self.train_dataset.K.to(self.device),
                                         self.poses,
                                         self.train_dataset.img_wh)
-    def training_epoch_end(self, outputs):
+    def on_train_epoch_end(self):
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
         self.train_dataset.current_epoch=self.current_epoch+1
@@ -435,7 +435,8 @@ if __name__ == '__main__':
         raise ValueError('You need to provide a @ckpt_path for validation!')
     system = DNeRFSystem(hparams)
     compiled_system=system
-    #compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
+
+    compiled_system=torch.compile(system,backend="eager") # pytorch compile not compatible with tcnn
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:<16>"
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',

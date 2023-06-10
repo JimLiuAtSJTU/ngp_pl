@@ -1,7 +1,7 @@
 # ngp_pl
 
-### Advertisement: Check out the latest integrated project [nerfstudio](https://github.com/nerfstudio-project/nerfstudio)! There are a lot of recent improvements on nerf related methods, including instant-ngp!
-
+### This repository is implemented based on https://github.com/kwea123/ngp_pl
+### thanks kwea123 for the excellent work! 
 <!-- ### Update 2022 July 29th: GUI prototype is available now (see following video)!
 
 ### Update 2022 July 24th: Training on custom data is possible now!
@@ -31,13 +31,15 @@ This implementation has **strict** requirements due to dependencies on other lib
 
 ## Software
 
-* Clone this repo by `git clone https://github.com/kwea123/ngp_pl`
-* Python>=3.8 (installation via [anaconda](https://www.anaconda.com/distribution/) is recommended, use `conda create -n ngp_pl python=3.8` to create a conda environment and activate it by `conda activate ngp_pl`)
+* Clone this repo by `git clone https://github.com/JimLiuAtSJTU/ngp_pl`
+* Python>=3.9 (installation via [anaconda](https://www.anaconda.com/distribution/) is recommended, use `conda create -n ngp_pl python=3.9` to create a conda environment and activate it by `conda activate ngp_pl`)
 * Python libraries
-    * Install pytorch by `pip install torch==1.11.0 --extra-index-url https://download.pytorch.org/whl/cu113`
+    * Install pytorch 2.0 
+    * To compile apex and tiny-cuda-nn, assure pytorch cuda version is identical to your cuda version. you can use `nvcc -V` to check your current cuda version. cuda 11.7 is recommended.
     * Install `torch-scatter` following their [instruction](https://github.com/rusty1s/pytorch_scatter#installation)
     * Install `tinycudann` following their [instruction](https://github.com/NVlabs/tiny-cuda-nn#pytorch-extension) (pytorch extension)
     * Install `apex` following their [instruction](https://github.com/NVIDIA/apex#linux)
+    * Install pytorch-lightning 2.0.2
     * Install core requirements by `pip install -r requirements.txt`
 
 * Cuda extension: Upgrade `pip` to >= 22.1 and run `pip install models/csrc/` (please run this each time you `pull` the code)
