@@ -244,7 +244,17 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
         VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
                              rays_a, kwargs.get('T_threshold', 1e-4))
 
-
+    '''
+    next step may be to optimize the reconstruction quality by using the "far background field" in SUDS.
+    may be written in cuda or pure pytorch.
+    
+    t_inf= torch.exp( - torch.sum(sigma*delta))
+    
+    
+    
+    rgb += t_inf* rgb_inf()
+    
+    '''
 
     results['rays_a'] = rays_a
 
