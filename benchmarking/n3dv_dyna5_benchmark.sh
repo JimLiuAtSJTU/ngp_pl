@@ -8,7 +8,7 @@
 python gpu_wait.py
 
 
-prefix="small_batch_size_benchmark___test"
+prefix="avoid_nan_test_small_batch_size_benchmark___"
 
 for dir in     "cut_roasted_beef" "flame_salmon_1"  "flame_steak" "sear_steak" "cook_spinach" "coffee_martini"
 do

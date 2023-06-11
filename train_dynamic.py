@@ -33,7 +33,7 @@ from models.rendering_time import render,MAX_SAMPLES
 from apex.optimizers import FusedAdam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from losses import NeRFLoss,loss_sum,dict_sum
-
+from torch.optim.adam import Adam
 # metrics
 from torchmetrics import (
     PeakSignalNoiseRatio, 
@@ -51,7 +51,7 @@ from pytorch_lightning.callbacks import GradientAccumulationScheduler
 from utils import slim_ckpt, load_ckpt
 from dyna_datasets.ray_utils import visualize_poses
 #import warnings; warnings.filterwarnings("ignore")
-
+from models.debug_utils import nan_dict_check,nan_check
 
 visualize_poses_flag=False
 import warnings
@@ -244,7 +244,9 @@ class DNeRFSystem(LightningModule):
             if n not in ['dR', 'dT']: net_params += [p]
 
         opts = []
-        self.net_opt = FusedAdam(net_params, self.hparams.lr, eps=1e-15)
+        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,amsgrad=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
+        #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) # ngp_pl repository set eps  1e-15, but may result in numerical error
+
         opts += [self.net_opt]
         if self.hparams.optimize_ext:
             opts += [FusedAdam([self.dR, self.dT], 1e-6)] # learning rate is hard-coded
@@ -322,6 +324,8 @@ class DNeRFSystem(LightningModule):
                                    loss_B=self.loss(results_trunk, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
                                        )
 
+            nan_dict_check(summed_loss_trunk)
+
             named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
             with torch.no_grad():
                 psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
@@ -335,6 +339,10 @@ class DNeRFSystem(LightningModule):
                 0.5*(unit_exposure_rgb-self.train_dataset.unit_exposure_rgb)**2
         loss = sum(lo.mean() for lo in summed_loss_trunk.values()) / trunk_numbers
 
+        try:
+            nan_check(loss)
+        except:
+            exit(10)
         '''
         calculate every trunk psnr and average them.
         '''
@@ -479,12 +487,14 @@ def print_time_elapse(t0,t1,prefix=''):
 
 
 if __name__ == '__main__':
-    torch.autograd.set_detect_anomaly(True)
+
     device_=torch.cuda.get_device_name(0)
+    torch.backends.cuda.matmul.allow_tf32=True
     #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)
     hparams = get_opts()
     t_start=datetime.datetime.now()
+    torch.set_float32_matmul_precision('highest')
 
     print(f'{datetime.datetime.now()}')
     print(f'configs={hparams}')
@@ -524,7 +534,6 @@ if __name__ == '__main__':
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True
     #torch._dynamo.config.suppress_errors = True
-    #torch.set_float32_matmul_precision('highest')
     trainer.fit(compiled_system, ckpt_path=hparams.ckpt_path)
 
     t1=datetime.datetime.now()

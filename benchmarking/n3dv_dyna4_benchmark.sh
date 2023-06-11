@@ -8,7 +8,7 @@
 
 
 
-prefix="small_batch_size_benchmark"
+prefix="avoid_nan__"
 
 for dir in     "cut_roasted_beef" "flame_salmon_1"  "flame_steak" "sear_steak" "cook_spinach" "coffee_martini"
 do
@@ -21,7 +21,7 @@ n3dv2 \
 --num_epochs \
 600 \
 --regenerate \
-1 \
+0 \
 --model_type \
 1 \
 --batch_size \

@@ -74,7 +74,7 @@ class NeRFLoss(nn.Module):
 
         o = results['opacity']+1e-10
 
-        opacity_dynamic=results['opacity_dynamic']
+        opacity_dynamic=results['opacity_dynamic'] + 1e-10
 
         sigma_entropy = results['sigma_entropy']
         # encourage opacity to be either 0 or 1 to avoid floater
@@ -89,6 +89,8 @@ class NeRFLoss(nn.Module):
                                      results['ts'], results['rays_a'])
         d['entropy']=entropyloss*self.lambda_entropy
         #d['dynamic']=  torch.sum(torch.abs(1-static_weight))*self.lambda_entropy
+
+
         return d
 
 '''

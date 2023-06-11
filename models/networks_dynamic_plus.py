@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from .rendering import NEAR_DISTANCE
 from kornia.utils.grid import create_meshgrid3d
 
+from .debug_utils import nan_check
 
 class NGP_time_code(nn.Module):
     def __init__(self, scale, rgb_act='Sigmoid'):
@@ -58,8 +59,8 @@ class NGP_time_code(nn.Module):
             n_input_dims=64, n_output_dims=48,
             network_config={
                 "otype": "FullyFusedMLP",
-                "activation": "ReLU",
-                "output_activation": "ReLU",
+                "activation": "LeakyReLU",
+                "output_activation": "Squareplus",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
             }
@@ -106,8 +107,8 @@ class NGP_time_code(nn.Module):
                 },
                 network_config={
                     "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": "None",
+                    "activation": "LeakyReLU",
+                    "output_activation": "Squareplus",
                     "n_neurons": 64,
                     "n_hidden_layers": 1,
                 }
@@ -163,7 +164,7 @@ class NGP_time_code(nn.Module):
             n_input_dims=input_dims, n_output_dims=output_dims,
             network_config={
                 "otype": "FullyFusedMLP",
-                "activation": "ReLU",
+                "activation": "LeakyReLU",
                 "output_activation": self.rgb_act,
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
@@ -213,8 +214,10 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
         """
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
-        h = self.encoder_static(x)
 
+        nan_check(x)
+        h = self.encoder_static(x)
+        nan_check(h)
         sigmas = TruncExp.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
@@ -234,8 +237,12 @@ class NGP_time_code(nn.Module):
         # tcnn supports inputs within [0,1]
 
         t = (t-self.t_min)/(self.t_max-self.t_min)
+        nan_check(x)
+        nan_check(t)
         time_code=self.time_latent_code(t)
+        nan_check(time_code)
         h =self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
+        nan_check(h)
         sigmas = TruncExp.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
@@ -250,6 +257,9 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
             rgbs: (N, 3)
         """
+        assert x.shape[0]>0
+        nan_check(x)
+        nan_check(d)
 
         t = kwargs.get('times')
         try:
@@ -261,6 +271,7 @@ class NGP_time_code(nn.Module):
             assert t.shape[0] == 1
 
             t = t.expand(x.shape[0], 1)
+        nan_check(t)
         # except IndexError:
         #    assert isinstance(t,torch.Tensor)
         #    print(f't,{t},{type(t)}')
@@ -270,11 +281,14 @@ class NGP_time_code(nn.Module):
 
         # use exp as activation, initialized to be 1
         sigma_static, h_static = self.static_density(x, return_feat=True)
+        nan_check(sigma_static)
 
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
+        nan_check(rgb_static)
 
         # use relu as activation, initialized to be 0
         sigma_dynamic, h_dyna = self.dynamic_density(x,t,  return_feat=True)
+        nan_check(sigma_dynamic)
 
 
         #print(time_code.shape)
@@ -282,6 +296,7 @@ class NGP_time_code(nn.Module):
         #print(h_dyna.shape)
         #exit(9)
         rgb_dynamic = self.rgb_net_dynamic(torch.cat([d, h_dyna], 1))
+        nan_check(rgb_dynamic)
         extra = {
             'rgb_dynamic':rgb_dynamic[:,:3],
             'sigma_dynamic':sigma_dynamic,

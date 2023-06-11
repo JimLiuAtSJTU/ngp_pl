@@ -8,7 +8,7 @@ MAX_SAMPLES = 1024
 NEAR_DISTANCE = 0.01
 
 
-
+from .debug_utils import nan_check,nan_dict_check
 
 
 
@@ -215,6 +215,14 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     """
     time_grid_indx=kwargs['t_grid_indx']
     exp_step_factor = kwargs.get('exp_step_factor', 0.)
+
+
+    nan_check(rays_o)
+    nan_check(rays_d)
+    nan_check(hits_t)
+
+
+
     results = {}
     (rays_a, xyzs, dirs,
     results['deltas'], results['ts'], results['rm_samples']) = \
@@ -222,6 +230,10 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
             rays_o, rays_d, hits_t[:, 0], model.density_bitfield[time_grid_indx],
             model.cascades, model.scale,
             exp_step_factor, model.grid_size, MAX_SAMPLES)
+    nan_dict_check(results)
+    nan_check(rays_a)
+
+
     #print(f'rays_a,rays_a.shape',rays_a,rays_a.shape)
     #print(kwargs)
     for k, v in kwargs.items():
@@ -233,6 +245,10 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
 
             kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
     sigmas, rgbs,extra = model(xyzs, dirs, **kwargs)
+
+    nan_check(sigmas)
+    nan_check(rgbs)
+    nan_dict_check(extra)
 
     (results['vr_samples'], results['opacity'],
     results['depth'], results['rgb'], results['ws']) = \
@@ -275,5 +291,5 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
 
     results['sigma_entropy'] = sigma_entropy_function(sigmas)
 
-
+    nan_dict_check(results)
     return results
