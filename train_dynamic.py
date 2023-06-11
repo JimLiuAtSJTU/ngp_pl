@@ -244,6 +244,11 @@ class DNeRFSystem(LightningModule):
             if n not in ['dR', 'dT']: net_params += [p]
 
         opts = []
+        #https://github.com/NVlabs/tiny-cuda-nn/issues/219
+        # use amsgrad for better numerical stability
+        # pytorch 2.0 offers fused amsgrad, but slightly slower than apex- adam ( 10%?)
+        # pytorch 2.0 offers fused  adam, but subtlely slower than apex
+        #
         self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,amsgrad=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
         #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) # ngp_pl repository set eps  1e-15, but may result in numerical error
 

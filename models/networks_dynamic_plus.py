@@ -110,7 +110,7 @@ class NGP_time_code(nn.Module):
                     "activation": "LeakyReLU",
                     "output_activation": "Squareplus",
                     "n_neurons": 64,
-                    "n_hidden_layers": 1,
+                    "n_hidden_layers": 2,
                 }
             )
         elif config=='time_latent_code':
@@ -135,8 +135,12 @@ class NGP_time_code(nn.Module):
                 }
             )
 
-
         elif config=='xyz_dynamic':
+            '''
+            TODO:
+            another thing may be benificial is to let the dynamic and static branch to share a spacial encoder
+            '''
+
             L = 12;
             F = 2;
             log2_T = 19;
