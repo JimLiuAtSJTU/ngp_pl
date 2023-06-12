@@ -4,13 +4,14 @@ import torch
 
 
 
-check_=False
+check_=True
 
 def nan_check(x):
     if not check_:return
     if isinstance(x,torch.Tensor):
         try:
             assert not torch.any(torch.isnan(x))
+            assert not torch.any(torch.isinf(x))
         except:
 
             print('nan occured! ')

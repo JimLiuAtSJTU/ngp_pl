@@ -3,7 +3,7 @@ from torch import nn
 import tinycudann as tcnn
 import vren
 from einops import rearrange
-from .custom_functions import TruncExp
+from .custom_functions import TruncExp,TruncExp_2
 import numpy as np
 import torch.nn.functional as F
 from .rendering import NEAR_DISTANCE
@@ -59,8 +59,8 @@ class NGP_time_code(nn.Module):
             n_input_dims=64, n_output_dims=48,
             network_config={
                 "otype": "FullyFusedMLP",
-                "activation": "LeakyReLU",
-                "output_activation": "Squareplus",
+                "activation": "ReLU",
+                "output_activation": "ReLU",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
             }
@@ -107,10 +107,10 @@ class NGP_time_code(nn.Module):
                 },
                 network_config={
                     "otype": "FullyFusedMLP",
-                    "activation": "LeakyReLU",
-                    "output_activation": "Squareplus",
+                    "activation": "ReLU",
+                    "output_activation": "None",
                     "n_neurons": 64,
-                    "n_hidden_layers": 2,
+                    "n_hidden_layers": 1,   # maybe only one layer is enough?
                 }
             )
         elif config=='time_latent_code':
@@ -136,10 +136,7 @@ class NGP_time_code(nn.Module):
             )
 
         elif config=='xyz_dynamic':
-            '''
-            TODO:
-            another thing may be benificial is to let the dynamic and static branch to share a spacial encoder
-            '''
+            # TODO:  another thing may be beneficial is to let the dynamic and static branch to share a spacial encoder
 
             L = 12;
             F = 2;
@@ -243,11 +240,17 @@ class NGP_time_code(nn.Module):
         t = (t-self.t_min)/(self.t_max-self.t_min)
         nan_check(x)
         nan_check(t)
-        time_code=self.time_latent_code(t)
+        assert x.shape[0]==t.shape[0]
+        try:
+            time_code=self.time_latent_code(t)
+        except RuntimeError:
+            print(t.shape)
+            time_code=self.time_latent_code(t)
+
         nan_check(time_code)
         h =self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
         nan_check(h)
-        sigmas = TruncExp.apply(h[:, 0])
+        sigmas = TruncExp_2.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
 

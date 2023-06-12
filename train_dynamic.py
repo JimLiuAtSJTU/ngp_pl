@@ -246,10 +246,20 @@ class DNeRFSystem(LightningModule):
         opts = []
         #https://github.com/NVlabs/tiny-cuda-nn/issues/219
         # use amsgrad for better numerical stability
-        # pytorch 2.0 offers fused amsgrad, but slightly slower than apex- adam ( 10%?)
-        # pytorch 2.0 offers fused  adam, but subtlely slower than apex
-        #
-        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,amsgrad=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
+        # apex afusedadam is better than pytorch adam, fused adam, amsgrad
+        # but each implementation causes nan in some times.
+        '''
+        numerical issue is hard to fix.
+        pytorch fused adam is significaltly (20%+) slower than apex fused adam.
+        and with slightly worse reconstruction quality.
+        consider double check later.
+        do not tune the eps.
+        to choose optimizer, just by commenting and dis-commenting the codes below. 
+        to fix the numerical issue, reference: https://github.com/Lightning-AI/lightning/issues/15501
+        may need to implement mannual backward loop.
+        
+        '''
+        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
         #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
         opts += [self.net_opt]
@@ -534,6 +544,8 @@ if __name__ == '__main__':
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       benchmark=True,
+
+         #             gradient_clip_val=10000,gradient_clip_algorithm='value',
                       precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')

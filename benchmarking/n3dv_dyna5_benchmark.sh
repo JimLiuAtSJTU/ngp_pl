@@ -5,7 +5,7 @@
 
 
 
-python gpu_wait.py
+#python gpu_wait.py
 
 
 prefix="avoid_nan_test_small_batch_size_benchmark___"

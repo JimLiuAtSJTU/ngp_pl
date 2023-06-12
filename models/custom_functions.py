@@ -209,7 +209,8 @@ class VolumeRenderer_2(torch.autograd.Function):
 class TruncExp(torch.autograd.Function):
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, x):
+    def forward(ctx, x_):
+        x=torch.clamp(x_,min=-15,max=15)
         ctx.save_for_backward(x)
         return torch.exp(x)
 
@@ -230,4 +231,32 @@ class TruncExp(torch.autograd.Function):
         it is easy to get out flow ot the gradients!, since it is likely to be > 65535 (maximum number in fp16)
         
         '''
-        return dL_dout * torch.exp(x.clamp(-15, 15))
+        return dL_dout * torch.exp(x)
+
+
+class TruncExp_2(torch.autograd.Function):
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.float32)
+    def forward(ctx, x_):
+        x = torch.clamp(x_, min=-15, max=15)
+        ctx.save_for_backward(x)
+        return torch.exp(x)
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, dL_dout):
+        x = ctx.saved_tensors[0]
+        '''
+        why use truncexp as non-linear activation function?
+
+        for shallow MLP, if we need to resemble a large magnitude relationship... using relu , the params may get outflow
+
+        so we use exp.
+
+        but what about the gradients?
+
+        because if we use relu and etc. for the shallow MLP
+        it is easy to get out flow ot the gradients!, since it is likely to be > 65535 (maximum number in fp16)
+
+        '''
+        return dL_dout * torch.exp(x)
