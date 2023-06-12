@@ -257,7 +257,6 @@ class DNeRFSystem(LightningModule):
         to choose optimizer, just by commenting and dis-commenting the codes below. 
         to fix the numerical issue, reference: https://github.com/Lightning-AI/lightning/issues/15501
         may need to implement mannual backward loop.
-        
         '''
         self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
         #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) # ngp_pl repository set eps  1e-15, but may result in numerical error
