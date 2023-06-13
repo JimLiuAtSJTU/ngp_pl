@@ -213,16 +213,20 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     3. Use volume rendering to combine the result (front to back compositing
        and early stop the ray if its transmittance is below a threshold)
     """
-    time_grid_indx=kwargs['t_grid_indx']
+    time_grid_indx = kwargs['t_grid_indx']
     exp_step_factor = kwargs.get('exp_step_factor', 0.)
 
-
+    #print(rays_o,rays_d)
+    #print(rays_o.shape,rays_d.shape)
+    #exit(0)
     nan_check(rays_o)
     nan_check(rays_d)
     nan_check(hits_t)
 
 
-
+    # TODO: add a tiny model to encode the background field.
+    # just by rays_o, rays_d and fourier encoding.
+    #
     results = {}
     (rays_a, xyzs, dirs,
     results['deltas'], results['ts'], results['rm_samples']) = \

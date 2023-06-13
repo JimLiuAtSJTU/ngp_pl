@@ -7,7 +7,7 @@ import datetime
 
 
 
-idle_time_limit=15
+idle_time_limit=10
 
 scan_interval=2
 

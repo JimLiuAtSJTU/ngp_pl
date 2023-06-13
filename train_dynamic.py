@@ -82,6 +82,7 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = 16
+        # TODO: tune the update interval, may lead to faster training.
         self.distortion_loss_step = 300
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
@@ -258,8 +259,9 @@ class DNeRFSystem(LightningModule):
         to fix the numerical issue, reference: https://github.com/Lightning-AI/lightning/issues/15501
         may need to implement mannual backward loop.
         '''
-        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True) # ngp_pl repository set eps  1e-15, but may result in numerical error
-        #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) # ngp_pl repository set eps  1e-15, but may result in numerical error
+        # TODO: tune a better optimizer setting, whether APEX is better for maximum performance?
+        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True) #
+        #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) #
 
         opts += [self.net_opt]
         if self.hparams.optimize_ext:
@@ -543,7 +545,7 @@ if __name__ == '__main__':
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       benchmark=True,
-
+         #             detect_anomaly=True,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
                       precision=16)
     t0=datetime.datetime.now()
@@ -570,8 +572,8 @@ if __name__ == '__main__':
        'Synthetic' in hparams.root_dir: # save video
         imgs = sorted(glob.glob(os.path.join(system.val_dir, '*.png')))
         imageio.mimsave(os.path.join(system.val_dir, 'rgb.mp4'),
-                        [imageio.imread(img) for img in imgs[::2]],
+                        [imageio.v2.imread(img) for img in imgs[::2]],
                         fps=30, macro_block_size=1)
         imageio.mimsave(os.path.join(system.val_dir, 'depth.mp4'),
-                        [imageio.imread(img) for img in imgs[1::2]],
+                        [imageio.v2.imread(img) for img in imgs[1::2]],
                         fps=30, macro_block_size=1)

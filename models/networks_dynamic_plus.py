@@ -41,7 +41,11 @@ class NGP_time_code(nn.Module):
         self.grid_size = 128
         self.register_buffer('density_bitfield',
                              torch.zeros(self.time_grid_resolution, self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
-
+        '''
+        divide xyz and xyz_fusion will not lead to performance increase.
+        maybe it's because of the complex computation graph.
+        to acceletate, we may need to tune the updating strategy of density grid
+        '''
         self.encoder_static = self.__get_hash_encoder(input_dims=3)
         self.encoder_dynamic = self.__get_hash_encoder(input_dims=3,config='xyz_dynamic')
         self.time_latent_code = self.__get_hash_encoder(input_dims=1, config='time_latent_code')
@@ -121,8 +125,13 @@ class NGP_time_code(nn.Module):
             N_min = 30 #   300 frames, each part = 50framse   total, 10s.
             highest_reso=self.time_stamps*0.666 # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
+            '''
+            n_input_dims should be 1 in the time setting.
+            don't know whether this will lead to nan issue.
+            and it is suprising that this will not lead to a warning / error.
+            '''
             return tcnn.Encoding(
-                n_input_dims=input_dims,
+                n_input_dims=1,
                 encoding_config={
                     "otype": "Grid",
                     "type": "Hash",
@@ -136,7 +145,6 @@ class NGP_time_code(nn.Module):
             )
 
         elif config=='xyz_dynamic':
-            # TODO:  another thing may be beneficial is to let the dynamic and static branch to share a spacial encoder
 
             L = 12;
             F = 2;
