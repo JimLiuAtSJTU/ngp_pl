@@ -13,8 +13,13 @@ from einops import rearrange
 set visible devices before initializing tcnn module.
 to let run on 3090 GPU.
 '''
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-
+import socket
+if socket.gethostname().startswith('zhenhuanliu'):
+    # 227 workstation
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+else:
+    # professor's server
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 # data
 from torch.utils.data import DataLoader

@@ -253,6 +253,7 @@ class NGP_time_code(nn.Module):
             time_code=self.time_latent_code(t)
         except RuntimeError:
             print(t.shape)
+            print(t)
             time_code=self.time_latent_code(t)
 
         nan_check(time_code)
