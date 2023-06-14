@@ -8,6 +8,9 @@ MAX_SAMPLES = 1024
 NEAR_DISTANCE = 0.01
 
 
+BACKGROUND_FIELD=False
+
+
 from .debug_utils import nan_check,nan_dict_check
 
 
@@ -139,6 +142,19 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
     opacity = torch.zeros(N_rays, device=device)
     depth = torch.zeros(N_rays, device=device)
     rgb = torch.zeros(N_rays, 3, device=device)
+    if BACKGROUND_FIELD:
+        kwargs['rays_o']=rays_o
+        kwargs['rays_d']=rays_d
+        kwargs['background_field']=True
+
+        '''
+        fake forward to get environment RGB value!
+        '''
+        env_RGB=model(0, 0,**kwargs)
+        kwargs.pop('rays_o')
+        kwargs.pop('rays_d')
+        kwargs.pop('background_field')
+
 
     samples = total_samples = 0
     alive_indices = torch.arange(N_rays, device=device)
@@ -190,7 +206,11 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
 
     results['opacity'] = opacity
     results['depth'] = depth
-    results['rgb'] = rgb
+    if BACKGROUND_FIELD:
+        T_inf = 1- opacity
+        results['rgb'] = rgb + T_inf[:,None]*env_RGB
+    else:
+        results['rgb'] = rgb
     results['total_samples'] = total_samples # total samples for all rays
 
     if exp_step_factor==0: # synthetic
@@ -236,6 +256,19 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
             exp_step_factor, model.grid_size, MAX_SAMPLES)
     nan_dict_check(results)
     nan_check(rays_a)
+
+    if BACKGROUND_FIELD:
+        kwargs['rays_o']=rays_o
+        kwargs['rays_d']=rays_d
+        kwargs['background_field']=True
+
+        '''
+        fake forward to get environment RGB value!
+        '''
+        env_RGB=model(xyzs, dirs,**kwargs)
+        kwargs.pop('rays_o')
+        kwargs.pop('rays_d')
+        kwargs.pop('background_field')
 
 
     #print(f'rays_a,rays_a.shape',rays_a,rays_a.shape)
@@ -291,6 +324,10 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
 
         else:
             rgb_bg = torch.zeros(3, device=rays_o.device)
+
+    if BACKGROUND_FIELD:
+        T_inf = 1 - results['opacity']
+        results['rgb'] = results['rgb']+ T_inf[:,None] * env_RGB
     results.update(extra)
 
     results['sigma_entropy'] = sigma_entropy_function(sigmas)

@@ -8,7 +8,7 @@
 
 
 
-prefix="avoid_nan__debug"
+prefix="nvidia_bug_"
 
 #for dir in     "cut_roasted_beef" "flame_salmon_1"  "flame_steak" "sear_steak" "cook_spinach" "coffee_martini"
 for dir in      "flame_salmon_1"   "cook_spinach"

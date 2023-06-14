@@ -114,10 +114,40 @@ class _module_function_backward(torch.autograd.Function):
 		ctx.ctx_fwd = ctx_fwd
 		ctx.save_for_backward(input, params, doutput)
 		with torch.no_grad():
+			'''
+			
+			if torch.max(doutput)>1e4:
+				warnings.warn('too large grad, maybe get gradient explosion.')
+			assert not torch.any(torch.isnan(doutput)) or doutput is None
+			'''
+
 			scaled_grad = doutput * ctx_fwd.loss_scale
+			#assert not torch.any(torch.isnan(scaled_grad))
 			input_grad, params_grad = ctx_fwd.native_tcnn_module.bwd(ctx_fwd.native_ctx, input, params, output, scaled_grad)
+			'''
+			if input_grad is not None:
+				assert not torch.any(torch.isnan(input_grad))
+				if  torch.max(input_grad,dim='all')>1e4:
+					warnings.warn('too large grad, maybe get gradient explosion.')
+			if params_grad is not None:
+				assert not torch.any(torch.isnan(params_grad))
+				if  torch.max(params_grad)>1e4:
+					warnings.warn('too large grad, maybe get gradient explosion.')
+			'''
 			input_grad = null_tensor_like(input) if input_grad is None else (input_grad / ctx_fwd.loss_scale)
 			params_grad = null_tensor_like(params) if params_grad is None else (params_grad / ctx_fwd.loss_scale)
+			'''
+			if input_grad is not None:
+				assert not torch.any(torch.isnan(input_grad))
+				if  torch.max(input_grad)>1e4:
+					warnings.warn('too large grad, maybe get gradient explosion.')
+			if params_grad is not None:
+				assert not torch.any(torch.isnan(params_grad))
+				if  torch.max(params_grad)>1e4:
+					warnings.warn('too large grad, maybe get gradient explosion.')
+			'''
+
+
 		return input_grad, params_grad
 
 	@staticmethod
@@ -131,7 +161,9 @@ class _module_function_backward(torch.autograd.Function):
 		# assert dparams_grad is None, "currently do not support 2nd-order gradients from gradient of grid"
 		with torch.enable_grad():
 			# NOTE: preserves requires_grad info (this function is in no_grad() context by default when invoking loss.backward())
+			assert not torch.any(torch.isnan(doutput))
 			doutput = doutput * ctx.ctx_fwd.loss_scale
+			assert not torch.any(torch.isnan(doutput))
 		with torch.no_grad():
 			doutput_grad, params_grad, input_grad = ctx.ctx_fwd.native_tcnn_module.bwd_bwd_input(
 				ctx.ctx_fwd.native_ctx,
@@ -162,7 +194,7 @@ class Module(torch.nn.Module):
 		self.params = torch.nn.Parameter(initial_params, requires_grad=True)
 		self.register_parameter(name="params", param=self.params)
 
-		self.loss_scale = 128.0 if self.native_tcnn_module.param_precision() == _C.Precision.Fp16 else 1.0
+		self.loss_scale = 1.0 if self.native_tcnn_module.param_precision() == _C.Precision.Fp16 else 1.0
 
 	def forward(self, x):
 		if not x.is_cuda:

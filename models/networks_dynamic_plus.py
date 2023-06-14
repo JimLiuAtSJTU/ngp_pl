@@ -3,13 +3,14 @@ from torch import nn
 import tinycudann as tcnn
 import vren
 from einops import rearrange
-from .custom_functions import TruncExp,TruncExp_2
+from .custom_functions import TruncExp, TruncExp_2
 import numpy as np
 import torch.nn.functional as F
 from .rendering import NEAR_DISTANCE
 from kornia.utils.grid import create_meshgrid3d
 
 from .debug_utils import nan_check
+
 
 class NGP_time_code(nn.Module):
     def __init__(self, scale, rgb_act='Sigmoid'):
@@ -23,13 +24,13 @@ class NGP_time_code(nn.Module):
         '''
         assume time in [-1,1]
         '''
-        self.t_min= - self.time_scale # -1 as default
-        self.t_max= self.time_scale # 1 as default
+        self.t_min = - self.time_scale  # -1 as default
+        self.t_max = self.time_scale  # 1 as default
 
-        self.time_grid_resolution = 1 # may be fine-tuned
-        self.t_center= torch.zeros(1)
-        #self.t_min= -torch.ones(1)*self.time_scale
-        #self.t_max= torch.ones(1)*self.time_scale
+        self.time_grid_resolution = 1  # may be fine-tuned
+        self.t_center = torch.zeros(1)
+        # self.t_min= -torch.ones(1)*self.time_scale
+        # self.t_max= torch.ones(1)*self.time_scale
 
         self.register_buffer('center', torch.zeros(1, 3))
         self.register_buffer('xyz_min', -torch.ones(1, 3) * scale)
@@ -37,17 +38,18 @@ class NGP_time_code(nn.Module):
         self.register_buffer('half_size', (self.xyz_max - self.xyz_min) / 2)
 
         # each density grid covers [-2^(k-1), 2^(k-1)]^3 for k in [0, C-1]
-        self.cascades = max(1 + int(np.ceil(np.log2(2 * scale))), 1) # int
+        self.cascades = max(1 + int(np.ceil(np.log2(2 * scale))), 1)  # int
         self.grid_size = 128
         self.register_buffer('density_bitfield',
-                             torch.zeros(self.time_grid_resolution, self.cascades * self.grid_size ** 3 // 8, dtype=torch.uint8))
+                             torch.zeros(self.time_grid_resolution, self.cascades * self.grid_size ** 3 // 8,
+                                         dtype=torch.uint8))
         '''
         divide xyz and xyz_fusion will not lead to performance increase.
         maybe it's because of the complex computation graph.
         to acceletate, we may need to tune the updating strategy of density grid
         '''
         self.encoder_static = self.__get_hash_encoder(input_dims=3)
-        self.encoder_dynamic = self.__get_hash_encoder(input_dims=3,config='xyz_dynamic')
+        self.encoder_dynamic = self.__get_hash_encoder(input_dims=3, config='xyz_dynamic')
         self.time_latent_code = self.__get_hash_encoder(input_dims=1, config='time_latent_code')
         self.dir_encoder = \
             tcnn.Encoding(
@@ -59,7 +61,7 @@ class NGP_time_code(nn.Module):
             )
         sigma_factor_dim = 0
 
-        self.xyz_t_fusion_mlp=  tcnn.Network(
+        self.xyz_t_fusion_mlp = tcnn.Network(
             n_input_dims=64, n_output_dims=48,
             network_config={
                 "otype": "FullyFusedMLP",
@@ -70,13 +72,48 @@ class NGP_time_code(nn.Module):
             }
         )
         self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
-        self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64, output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
+        self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64,
+                                                  output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
 
         self.init_density_grids()
+
+        self.background_rgb_mlp = tcnn.NetworkWithInputEncoding(
+            n_input_dims=7, n_output_dims=3,
+            encoding_config={
+                "otype": "Composite",
+                "nested": [
+                    {
+                        "n_dims_to_encode": 3,
+                        "otype": 'SphericalHarmonics',
+                        "degree": 3,
+                    },
+                    {
+                        "n_dims_to_encode": 3,
+                        "otype": "SphericalHarmonics",
+                        "degree": 4,
+                    },
+                    {
+                        "n_dims_to_encode": 1,
+                        "otype": "Frequency",
+                        "n_frequencies": 8,
+                    }
+
+                ]
+            },
+            network_config={
+                "otype": "FullyFusedMLP",
+                "activation": "ReLU",
+                "output_activation": "None",
+                "n_neurons": 64,
+                "n_hidden_layers": 2,  # maybe only one layer is enough?
+            }
+        )
+
         print(f'time aware NGP model initialized')
+
     def init_density_grids(self):
         G = self.grid_size
         self.register_buffer('density_grid',
@@ -84,13 +121,13 @@ class NGP_time_code(nn.Module):
 
         tmp = create_meshgrid3d(G, G, G, False, dtype=torch.int32).reshape(-1, 3)
         size_ = tmp.shape[0]
-        self.register_buffer('grid_coords', torch.zeros(self.time_grid_resolution, size_, 3,dtype=torch.int32))
+        self.register_buffer('grid_coords', torch.zeros(self.time_grid_resolution, size_, 3, dtype=torch.int32))
         for i in range(self.time_grid_resolution):
             self.grid_coords[i] = tmp[:, :]
 
     def __get_hash_encoder(self, input_dims=3, config='xyz_mlp'):
         # constants
-        if config=='xyz_mlp':
+        if config == 'xyz_mlp':
             L = 16;
             F = 2;
             log2_T = 19;
@@ -114,16 +151,16 @@ class NGP_time_code(nn.Module):
                     "activation": "ReLU",
                     "output_activation": "None",
                     "n_neurons": 64,
-                    "n_hidden_layers": 1,   # maybe only one layer is enough?
+                    "n_hidden_layers": 1,  # maybe only one layer is enough?
                 }
             )
-        elif config=='time_latent_code':
+        elif config == 'time_latent_code':
 
             L = 10;
-            F = 4;     # 40 dim
-            log2_T = 8; # 256 hash tables.
-            N_min = 30 #   300 frames, each part = 50framse   total, 10s.
-            highest_reso=self.time_stamps*0.666 # lower than the dimension
+            F = 4;  # 40 dim
+            log2_T = 8;  # 256 hash tables.
+            N_min = 30  # 300 frames, each part = 50framse   total, 10s.
+            highest_reso = self.time_stamps * 0.666  # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
             '''
             n_input_dims should be 1 in the time setting.
@@ -144,7 +181,7 @@ class NGP_time_code(nn.Module):
                 }
             )
 
-        elif config=='xyz_dynamic':
+        elif config == 'xyz_dynamic':
 
             L = 12;
             F = 2;
@@ -167,6 +204,7 @@ class NGP_time_code(nn.Module):
             )
         else:
             raise NotImplementedError
+
     def __get_rgb_mlp(self, input_dims=32, output_dims=3):
 
         return tcnn.Network(
@@ -179,6 +217,7 @@ class NGP_time_code(nn.Module):
                 "n_hidden_layers": 2,
             }
         )
+
     def blend_together(self, s_sigma, d_sigma, s_rgb, d_rgb, rho):
         '''
 
@@ -188,7 +227,7 @@ class NGP_time_code(nn.Module):
         s_rgb,d_rgb: static, dynamic
         rho: shadow factor in [0,1]. consider using a sigmoid.
         '''
-        sigma = s_sigma + d_sigma*(1 - rho)
+        sigma = s_sigma + d_sigma * (1 - rho)
 
         eps = 1e-6
         w_static = s_sigma / torch.clamp(sigma, min=eps)
@@ -199,7 +238,7 @@ class NGP_time_code(nn.Module):
         # print(f'rho{rho,}{rho.shape}')
 
         # unsqueeze
-        rgb = (w_static )[:, None] * s_rgb
+        rgb = (w_static)[:, None] * s_rgb
         # print(f'rgb,{rgb.shape}')
         # print(f's_rgb,{s_rgb.shape}')
 
@@ -211,7 +250,6 @@ class NGP_time_code(nn.Module):
         return static for debug!
         '''
         return sigma, rgb, w_static
-
 
     def static_density(self, x, return_feat=False):
         """
@@ -231,7 +269,7 @@ class NGP_time_code(nn.Module):
         if return_feat: return sigmas, h
         return sigmas
 
-    def dynamic_density(self, x,t, return_feat=False):
+    def dynamic_density(self, x, t, return_feat=False):
         """
         Inputs:
             x: (N, 3) xyz in [-scale, scale]
@@ -245,23 +283,26 @@ class NGP_time_code(nn.Module):
         # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
         # tcnn supports inputs within [0,1]
 
-        t = (t-self.t_min)/(self.t_max-self.t_min)
+        t = (t - self.t_min) / (self.t_max - self.t_min)
         nan_check(x)
         nan_check(t)
-        assert x.shape[0]==t.shape[0]
+        assert x.shape[0] == t.shape[0]
         try:
-            time_code=self.time_latent_code(t)
+            time_code = self.time_latent_code(t)
         except RuntimeError:
             print(t.shape)
             print(t)
-            time_code=self.time_latent_code(t)
+            time_code = self.time_latent_code(t)
 
         nan_check(time_code)
-        h =self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
+        h = self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
         nan_check(h)
         sigmas = TruncExp_2.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
+
+    def background_field(self, rayso, raysd,t):
+        return self.background_rgb_mlp(torch.cat([rayso,raysd,t],-1))
 
     def forward(self, x, d, **kwargs):
         """
@@ -273,21 +314,42 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
             rgbs: (N, 3)
         """
-        assert x.shape[0]>0
-        nan_check(x)
-        nan_check(d)
+
 
         t = kwargs.get('times')
+
+        if kwargs.get('background_field', False):
+            # compute backgournd field
+            rays_o, rays_d = kwargs.get('rays_o'), kwargs.get('rays_d')
+            try:
+                assert rays_d.shape[0]==rays_o.shape[0]==t.shape[0]
+
+            except:
+                print(rays_o.shape)
+                print(rays_d.shape)
+                print(t.shape)
+                exit(1)
+            t = (t - self.t_min) / (self.t_max - self.t_min)
+
+            return self.background_field(rays_o, rays_d,t)
+
+
         try:
             assert t.shape[0] == x.shape[0]
         except AssertionError:
-            #print(f'x,t',x,t)
-            #print(f'x,t',x.shape,t.shape)
+            # print(f'x,t',x,t)
+            # print(f'x,t',x.shape,t.shape)
 
             assert t.shape[0] == 1
 
             t = t.expand(x.shape[0], 1)
         nan_check(t)
+
+        assert x.shape[0] > 0
+        nan_check(x)
+        nan_check(d)
+
+
         # except IndexError:
         #    assert isinstance(t,torch.Tensor)
         #    print(f't,{t},{type(t)}')
@@ -303,19 +365,18 @@ class NGP_time_code(nn.Module):
         nan_check(rgb_static)
 
         # use relu as activation, initialized to be 0
-        sigma_dynamic, h_dyna = self.dynamic_density(x,t,  return_feat=True)
+        sigma_dynamic, h_dyna = self.dynamic_density(x, t, return_feat=True)
         nan_check(sigma_dynamic)
 
-
-        #print(time_code.shape)
-        #print(d.shape)
-        #print(h_dyna.shape)
-        #exit(9)
+        # print(time_code.shape)
+        # print(d.shape)
+        # print(h_dyna.shape)
+        # exit(9)
         rgb_dynamic = self.rgb_net_dynamic(torch.cat([d, h_dyna], 1))
         nan_check(rgb_dynamic)
         extra = {
-            'rgb_dynamic':rgb_dynamic[:,:3],
-            'sigma_dynamic':sigma_dynamic,
+            'rgb_dynamic': rgb_dynamic[:, :3],
+            'sigma_dynamic': sigma_dynamic,
         }
         sigma, rgb, weight = self.blend_together(s_sigma=sigma_static,
                                                  d_sigma=sigma_dynamic,
@@ -350,7 +411,7 @@ class NGP_time_code(nn.Module):
             cells: list (of length self.cascades) of indices and coords
                    selected at each cascade
         """
-        t_cells=[]
+        t_cells = []
         for t in range(self.time_grid_resolution):
             cells = []
             for c in range(self.cascades):
@@ -359,7 +420,7 @@ class NGP_time_code(nn.Module):
                                         device=self.density_grid[t].device)
                 indices1 = vren.morton3D(coords1).long()
                 # occupied cells
-                indices2 = torch.nonzero(self.density_grid[t,c] > density_threshold)[:, 0]
+                indices2 = torch.nonzero(self.density_grid[t, c] > density_threshold)[:, 0]
                 if len(indices2) > 0:
                     rand_idx = torch.randint(len(indices2), (M,),
                                              device=self.density_grid[t].device)
@@ -415,28 +476,28 @@ class NGP_time_code(nn.Module):
                 covered_by_cam = (uvd[:, 2] >= NEAR_DISTANCE) & in_image  # (N_cams, chunk)
                 # if the cell is visible by at least one camera
                 self.count_grid[c, indices[i:i + chunk]] = \
-                    count = covered_by_cam.sum(0) / N_cams
+                    count = covered_by_cam.sum(0)/ N_cams
 
                 too_near_to_cam = (uvd[:, 2] < NEAR_DISTANCE) & in_image  # (N, chunk)
                 # if the cell is too close (in front) to any camera
                 too_near_to_any_cam = too_near_to_cam.any(0)
                 # a valid cell should be visible by at least one camera and not too close to any camera
                 valid_mask = (count > 0) & (~too_near_to_any_cam)
-                self.density_grid[:,c, indices[i:i + chunk]] = \
+                self.density_grid[:, c, indices[i:i + chunk]] = \
                     torch.where(valid_mask, 0., -1.)  # same for all time stamps
 
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
-        #print(f'updating density grid, warmup={warmup}')
+        # print(f'updating density grid, warmup={warmup}')
 
         if warmup:  # during the first steps
             cells = self.get_all_cells()
         else:
             t_cells = self.sample_uniform_and_occupied_cells(self.grid_size ** 3 // 4,
-                                                           density_threshold)
+                                                             density_threshold)
         for t_ in range(self.time_grid_resolution):
             if not warmup:
-                cells=t_cells[t_]
+                cells = t_cells[t_]
             density_grid_tmp = torch.zeros_like(self.density_grid[t_])
 
             # infer sigmas
@@ -459,11 +520,11 @@ class NGP_time_code(nn.Module):
                 t_interval = self.t_max - self.t_min
                 t_start_ = t_interval * (t_ / self.time_grid_resolution) + self.t_min
                 t_end = t_interval * ((t_ + 1) / self.time_grid_resolution) + self.t_min
-                rand_t = torch.rand_like(xyzs_w[:,0:1]) * (t_end - t_start_) + t_end
+                rand_t = torch.rand_like(xyzs_w[:, 0:1]) * (t_end - t_start_) + t_end
 
                 density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w, rand_t,
                                                                                                   return_feat=False)
-            #print(1)
+            # print(1)
             if erode:
                 # My own logic. decay more the cells that are visible to few cameras
                 decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)
@@ -471,18 +532,17 @@ class NGP_time_code(nn.Module):
                 torch.where(self.density_grid[t_] < 0,
                             self.density_grid[t_],
                             torch.maximum(self.density_grid[t_] * decay, density_grid_tmp))
-            #print(2)
+            # print(2)
             mean_density = self.density_grid[t_][self.density_grid[t_] > 0].mean().item()
-            #print(3)
+            # print(3)
             vren.packbits(self.density_grid[t_], min(mean_density, density_threshold),
                           self.density_bitfield[t_])
 
-    def get_t_grid_indices(self,batched_time_stamps):
-        t_min= - self.time_scale # -1 as default
-        t_max= self.time_scale # 1 as default
+    def get_t_grid_indices(self, batched_time_stamps):
+        t_min = - self.time_scale  # -1 as default
+        t_max = self.time_scale  # 1 as default
 
-
-        diff = (batched_time_stamps - t_min)/(t_max-t_min) # compress into [0,1) to avoid coordinates overflow
-        diff_indx=torch.floor(diff*self.time_grid_resolution) # [0, t_resolution)
+        diff = (batched_time_stamps - t_min) / (t_max - t_min)  # compress into [0,1) to avoid coordinates overflow
+        diff_indx = torch.floor(diff * self.time_grid_resolution)  # [0, t_resolution)
         diff_indx = diff_indx.int()
-        return torch.clamp(diff_indx,0,self.time_grid_resolution-1)
+        return torch.clamp(diff_indx, 0, self.time_grid_resolution - 1)
