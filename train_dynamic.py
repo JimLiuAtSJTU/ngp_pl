@@ -90,7 +90,6 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = 16
-        # TODO: tune the update interval, may lead to faster training.
         self.distortion_loss_step = 300
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
@@ -101,8 +100,6 @@ class DNeRFSystem(LightningModule):
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
-        self.automatic_optimization=False
-        self.grad_scaler=torch.cuda.amp.GradScaler()
         if self.hparams.eval_lpips:
             self.val_lpips = LearnedPerceptualImagePatchSimilarity('vgg')
             for p in self.val_lpips.net.parameters():
@@ -268,10 +265,32 @@ class DNeRFSystem(LightningModule):
         to choose optimizer, just by commenting and dis-commenting the codes below. 
         to fix the numerical issue, reference: https://github.com/Lightning-AI/lightning/issues/15501
         may need to implement mannual backward loop.
+        
+        
+        float32 will not run into numeric issue.
+        float16 will be likely to run into numeric issue.
+        
+        add weight decay to avoid the parameter of nn become too large ( inf )
+        
+        
+        adding weight decay is equalt to add L2 regularization of the parameters to loss function.
+        
+        avoid parameter -> 50000+
+        
+        50000^2= 2.5e9
+        
+        adding a  1e-10 weight decay is OK. without damaging the reconstruction quality
+        param to 50000 -> 0.25 in loss, is great enough because the loss < 0.1 when PSNR > 20.
+         
         '''
-        # TODO: tune a better optimizer setting, whether APEX is better for maximum performance?
-        self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True) #
-        #self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15) #
+
+        #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
+        #                    weight_decay=1e-10 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
+        #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
+        self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
+                                 weight_decay=1e-10
+
+                                 ) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
         opts += [self.net_opt]
         if self.hparams.optimize_ext:
@@ -300,7 +319,6 @@ class DNeRFSystem(LightningModule):
                                         self.poses,
                                         self.train_dataset.img_wh)
     def on_train_epoch_end(self):
-        self.lr_schedulers().step()
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
         self.train_dataset.current_epoch=self.current_epoch+1
@@ -317,100 +335,83 @@ class DNeRFSystem(LightningModule):
                                            erode=bool(self.hparams.erode),
                       #                     erode=self.hparams.dataset_name=='colmap'
                                            )
-        opti=self.optimizers().optimizer
-        opti.zero_grad()
-        scaler_=self.grad_scaler
 
-        with torch.cuda.amp.autocast(dtype=torch.float16):
+        trunk_numbers= batch['times'].shape[0]//batch['t_trunk_size']
 
-            trunk_numbers= batch['times'].shape[0]//batch['t_trunk_size']
+        '''
+        compute loss for each trunk. sum up, and divide by the trunk numbers
+        to avoid concat the results of trunks together (may be a lot of memory allocation, time consuming)
+        just pass the "density grids/ bits index", and slice by the start to end in the rendering function.
+        
+        https://discuss.pytorch.org/t/does-indexing-a-tensor-return-a-copy-of-it/164905
+        
+        in the rendering function, just use some of the rows
+        so that there will not be need to copy or re-create a variable
+        '''
+        summed_loss_trunk=None
 
-            '''
-            compute loss for each trunk. sum up, and divide by the trunk numbers
-            to avoid concat the results of trunks together (may be a lot of memory allocation, time consuming)
-            just pass the "density grids/ bits index", and slice by the start to end in the rendering function.
-            
-            https://discuss.pytorch.org/t/does-indexing-a-tensor-return-a-copy-of-it/164905
-            
-            in the rendering function, just use some of the rows
-            so that there will not be need to copy or re-create a variable
-            '''
-            summed_loss_trunk=None
+        psnr_sum=0
 
-            psnr_sum=0
+        named_results={
+        }
 
-            named_results={
-            }
+        for i in range(trunk_numbers):
+            start_=i*batch['t_trunk_size']
+            batch['start']=start_
+            end_=(i+1)*batch['t_trunk_size']
+            batch['end']=end_
+            batch['t_grid_indx']=i
 
-            for i in range(trunk_numbers):
-                start_=i*batch['t_trunk_size']
-                batch['start']=start_
-                end_=(i+1)*batch['t_trunk_size']
-                batch['end']=end_
-                batch['t_grid_indx']=i
-
-                results_trunk = self(batch, split='train')
+            results_trunk = self(batch, split='train')
 
 
-                summed_loss_trunk = loss_sum(loss_A=summed_loss_trunk,
-                                       loss_B=self.loss(results_trunk, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
-                                           )
+            summed_loss_trunk = loss_sum(loss_A=summed_loss_trunk,
+                                   loss_B=self.loss(results_trunk, batch,use_dst_loss=self.global_step>=self.distortion_loss_step)
+                                       )
 
-                nan_dict_check(summed_loss_trunk)
+            nan_dict_check(summed_loss_trunk)
 
-                named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
-                with torch.no_grad():
-                    psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
+            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
+            with torch.no_grad():
+                psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
 
-            if self.hparams.use_exposure:
-                raise NotImplementedError
-                zero_radiance = torch.zeros(1, 3, device=self.device)
-                unit_exposure_rgb = self.model.log_radiance_to_rgb(zero_radiance,
-                                        **{'exposure': torch.ones(1, 1, device=self.device)})
-                summed_loss_trunk['unit_exposure'] = \
-                    0.5*(unit_exposure_rgb-self.train_dataset.unit_exposure_rgb)**2
-            loss = sum(lo.mean() for lo in summed_loss_trunk.values()) / trunk_numbers
+        if self.hparams.use_exposure:
+            raise NotImplementedError
+            zero_radiance = torch.zeros(1, 3, device=self.device)
+            unit_exposure_rgb = self.model.log_radiance_to_rgb(zero_radiance,
+                                    **{'exposure': torch.ones(1, 1, device=self.device)})
+            summed_loss_trunk['unit_exposure'] = \
+                0.5*(unit_exposure_rgb-self.train_dataset.unit_exposure_rgb)**2
+        loss = sum(lo.mean() for lo in summed_loss_trunk.values()) / trunk_numbers
 
-            try:
-                nan_check(loss)
-            except:
-                exit(10)
-            '''
-            calculate every trunk psnr and average them.
-            '''
-            self.log('lr', self.net_opt.param_groups[0]['lr'])
-            self.log('train/loss', loss)
-            self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
-            self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_sigma_entropy,True)
-            self.log('train/opacity', summed_loss_trunk['opacity'].mean()/self.loss.lambda_opacity,True)
-            self.log('train/opacity_dynamic', summed_loss_trunk['opacity_dynamic'].mean()/self.loss.lambda_opac_dyna,True)
+        try:
+            nan_check(loss)
+        except:
+            exit(10)
+        '''
+        calculate every trunk psnr and average them.
+        '''
+        self.log('lr', self.net_opt.param_groups[0]['lr'])
+        self.log('train/loss', loss)
+        self.log('train/entropy', summed_loss_trunk['entropy'].mean()/self.loss.lambda_entropy,True)
+        self.log('train/sigma_entropy', summed_loss_trunk['sigma_entropy'].mean()/self.loss.lambda_sigma_entropy,True)
+        self.log('train/opacity', summed_loss_trunk['opacity'].mean()/self.loss.lambda_opacity,True)
+        self.log('train/opacity_dynamic', summed_loss_trunk['opacity_dynamic'].mean()/self.loss.lambda_opac_dyna,True)
 
-            if 'distortion' in summed_loss_trunk:
-                self.log('train/distortion', summed_loss_trunk['distortion'].mean() / self.loss.lambda_distortion, True)
-            self.log('train/erode', self.hparams.erode)
-            self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
-            self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
-            self.log('train/distortion_loss_w', self.hparams.distortion_loss_w)
+        if 'distortion' in summed_loss_trunk:
+            self.log('train/distortion', summed_loss_trunk['distortion'].mean() / self.loss.lambda_distortion, True)
+        self.log('train/erode', self.hparams.erode)
+        self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
+        self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
+        self.log('train/distortion_loss_w', self.hparams.distortion_loss_w)
 
-            # ray marching samples per ray (occupied space on the ray)
-            self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
-            # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
-            self.log('train/vr_s', named_results['vr_samples']/len(batch['rgb']), True)
-            self.log('train/psnr', psnr_sum/trunk_numbers,True)
+        # ray marching samples per ray (occupied space on the ray)
+        self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
+        # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
+        self.log('train/vr_s', named_results['vr_samples']/len(batch['rgb']), True)
+        self.log('train/psnr', psnr_sum/trunk_numbers,True)
 
-        print(loss,loss.dtype)
-        self.manual_backward(scaler_.scale(loss))
-        scaler_.step(optimizer=opti)
-
-        scaler_.update()
-
-        for param in self.model.parameters():
-            # fp16 is around 65000
-            if torch.isinf(param).any():
-                warnings.warn('Detected inf weights in module! clip them!')
-                param = torch.clamp(param, min=-2e4, max=2e4)
-            assert not torch.isnan(param).any()
-
+        return loss
 
     def on_validation_start(self):
         torch.cuda.empty_cache()
@@ -573,10 +574,8 @@ if __name__ == '__main__':
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       benchmark=True,
-         #             detect_anomaly=True,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
-            precision=16
-                      )
+                      precision=16)
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True
