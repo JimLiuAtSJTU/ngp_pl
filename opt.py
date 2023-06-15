@@ -2,6 +2,7 @@ import argparse
 
 
 
+# remain identical to hexplane
 default_downsample=1/(2704/1024)/2
 
 def get_opts():
@@ -9,6 +10,8 @@ def get_opts():
 
     parser.add_argument('--model_type', type=int, default=1,choices=[0,1,-1],
                         help='0 for ngp_time, 1 for ngp_time_plus')
+    parser.add_argument('--update_interval', type=int, default=8,
+                        help='update interval of the grids')
 
 
     # dataset parameters
@@ -45,7 +48,7 @@ def get_opts():
                              ' corresponding to  10 epochs.')
 
     # training options
-    parser.add_argument('--batch_size', type=int, default=4096, #8192
+    parser.add_argument('--batch_size', type=int, default=512, # 512 is OK
                         help='number of rays in a batch')
     parser.add_argument('--ray_sampling_strategy', type=str, default='batch_time',
                         choices=['all_images', 'same_image','all_time','batch_time','same_time','importance_time_batch'],
@@ -74,7 +77,7 @@ def get_opts():
                         ''')
     parser.add_argument('--num_gpus', type=int, default=1,
                         help='number of gpus')
-    parser.add_argument('--lr', type=float, default=1e-3,
+    parser.add_argument('--lr', type=float, default=1e-3, # 1e-3 is default
                         help='learning rate')
     # experimental training options
     parser.add_argument('--optimize_ext', action='store_true', default=False,

@@ -485,7 +485,13 @@ class NGP_time_code(nn.Module):
                 valid_mask = (count > 0) & (~too_near_to_any_cam)
                 self.density_grid[:, c, indices[i:i + chunk]] = \
                     torch.where(valid_mask, 0., -1.)  # same for all time stamps
+    # TODO: consider move updating density grid to forward region to perform AMP
 
+    '''
+    updating desntity_grid_should be in float32 operation, this may lead to performance issue.
+    consider warp this operation in the forward function, to let lightning module call mixed precision plugin.
+    may bring some performance bonus.
+    '''
     @torch.no_grad()
     def update_density_grid(self, density_threshold, warmup=False, decay=0.95, erode=False):
         # print(f'updating density grid, warmup={warmup}')

@@ -83,13 +83,27 @@ def dir_to_indx(dir_str):
 
     return indx_int,prefix
 
+
+# TODO: consider the following:
+#    1. how to implement the background field.
+#    2. tune the importance sampling strategy, to get better synthesis results. may refer to hexplane.
+#    3. consider use the 2-stage training strategy...but may be very hard
+#    4. consider remove the static branch and add flow consistency regularization...
+# TODO: tune the dct-nerf.
+#  1. how to deal with the cases that some of the motions are sometimes out of the grid bounds?
+#  2. occupancy grids updating strategy...
+#
+#
+#
+#
+
 class DNeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
 
         self.warmup_steps = 256
-        self.update_interval = 16
+        self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
         self.distortion_loss_step = 300
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
@@ -296,8 +310,10 @@ class DNeRFSystem(LightningModule):
         if self.hparams.optimize_ext:
             opts += [FusedAdam([self.dR, self.dT], 1e-6)] # learning rate is hard-coded
         net_sch = CosineAnnealingLR(self.net_opt,
-                                    self.hparams.num_epochs*4//5,
-                                    self.hparams.lr/30)
+                                    T_max=self.hparams.num_epochs*4//10,
+                                    eta_min=self.hparams.lr/30,
+                                    last_epoch=-1
+                                    )
 
         return opts, [net_sch]
 
@@ -534,12 +550,12 @@ def print_time_elapse(t0,t1,prefix=''):
 if __name__ == '__main__':
 
     device_=torch.cuda.get_device_name(0)
-    torch.backends.cuda.matmul.allow_tf32=True
     #assert device_.endswith('3090')
     #torch.cuda.memory_summary(device=None, abbreviated=False)
     hparams = get_opts()
     t_start=datetime.datetime.now()
-    torch.set_float32_matmul_precision('highest')
+    #torch.set_float32_matmul_precision('highest')
+    torch.backends.cuda.matmul.allow_tf32=True #
 
     print(f'{datetime.datetime.now()}')
     print(f'configs={hparams}')
@@ -584,6 +600,19 @@ if __name__ == '__main__':
 
     t1=datetime.datetime.now()
 
+
+    '''
+    
+    speed: 
+    
+    hexplanes: NVIDIA V100 2 hours (SOTA)  approx. RTX 3090 1 hour
+    K-Planes: NVIDIA A30  ~4 hours
+    
+    mine: NVIDIA RTX 3090 ~ 2 hours
+    
+    # temporal consistency for 
+    
+    '''
     print_time_elapse(t0,t1,'training + evaluation')
     print_time_elapse(t_start,t1,'data preparing + training + evaluation')
 

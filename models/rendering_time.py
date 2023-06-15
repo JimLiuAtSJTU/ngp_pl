@@ -244,7 +244,6 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     nan_check(hits_t)
 
 
-    # TODO: add a tiny model to encode the background field.
     # just by rays_o, rays_d and fourier encoding.
     #
     results = {}
