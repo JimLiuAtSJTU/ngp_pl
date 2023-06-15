@@ -92,6 +92,7 @@ def dir_to_indx(dir_str):
 # TODO: tune the dct-nerf.
 #  1. how to deal with the cases that some of the motions are sometimes out of the grid bounds?
 #  2. occupancy grids updating strategy...
+#  3. vertex magnitude ... should be the same with different relationship? upper and down are the same?
 #
 #
 #
