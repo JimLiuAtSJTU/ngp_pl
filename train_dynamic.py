@@ -85,8 +85,8 @@ def dir_to_indx(dir_str):
 
 
 # TODO: consider the following:
-#    1. how to implement the background field.
-#    2. tune the importance sampling strategy, to get better synthesis results. may refer to hexplane.
+#    1. how to implement the background field. to compensate for the outdoor scenery.
+#    2. using the importance sampling strategy, refer to hexplane code..
 #    3. consider use the 2-stage training strategy...but may be very hard
 #    4. consider remove the static branch and add flow consistency regularization...
 # TODO: tune the dct-nerf.
@@ -116,7 +116,7 @@ class DNeRFSystem(LightningModule):
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
         if self.hparams.eval_lpips:
-            self.val_lpips = LearnedPerceptualImagePatchSimilarity('vgg')
+            self.val_lpips = LearnedPerceptualImagePatchSimilarity('alex')
             for p in self.val_lpips.net.parameters():
                 p.requires_grad = False
 
@@ -294,16 +294,16 @@ class DNeRFSystem(LightningModule):
         
         50000^2= 2.5e9
         
-        adding a  1e-10 weight decay is OK. without damaging the reconstruction quality
+        adding a  5e-9 weight decay is OK. without damaging the reconstruction quality
         param to 50000 -> 0.25 in loss, is great enough because the loss < 0.1 when PSNR > 20.
          
         '''
 
         #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
-        #                    weight_decay=1e-10 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
+        #                    weight_decay=5e-9 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
         #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
         self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
-                                 weight_decay=1e-10
+                                 weight_decay=5e-9
 
                                  ) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
@@ -606,12 +606,11 @@ if __name__ == '__main__':
     
     speed: 
     
-    hexplanes: NVIDIA V100 2 hours (SOTA)  approx. RTX 3090 1 hour
+    hexplanes: NVIDIA V100 2 hours (SOTA)  approx. RTX 3090 1.x hour
     K-Planes: NVIDIA A30  ~4 hours
     
-    mine: NVIDIA RTX 3090 ~ 2 hours
+    mine: NVIDIA RTX 3090 ~ 1 hours is almost OK.
     
-    # temporal consistency for 
     
     '''
     print_time_elapse(t0,t1,'training + evaluation')

@@ -243,10 +243,23 @@ class N3DV_dataset_2(BaseDataset):
                 assert self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1) or self.importance is None
             except:
                 self.importance=self.importance.view(self.N_cam,self.N_time, self.W * self.H, 1)
-            if isinstance(self.importance,torch.Tensor):
-                self.importance=self.importance.numpy().astype(np.float64)
-            self.importance=np.power(self.importance,0.8)
-            self.importance/=np.sum(self.importance)
+
+
+            if not isinstance(self.importance,torch.Tensor):
+                self.importance = torch.from_numpy(self.importance)
+
+            with torch.no_grad():
+                '''
+                use double precision to let the probabilities summing to 1.
+                '''
+                self.importance = self.importance.to(0).double()
+                std_mean_=torch.std_mean(self.importance)
+                max_, min_ =torch.max(self.importance),torch.min(self.importance)
+
+                #self.importance = torch.pow(self.importance, 0.8)
+                self.importance /= torch.sum(self.importance)
+            self.importance=self.importance.to('cpu').numpy().astype(np.float64)
+
 
         else:
             self.N_time=len(self.times)
