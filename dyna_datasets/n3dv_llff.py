@@ -12,148 +12,39 @@ from .color_utils import read_image
 
 from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
-
+from .importance_sampling.Sampling import GM_Resi,GM_function
 
 STATIC_ONLY=False #debug only
 
 val_indx_N3DV=0
-#regenerate=False  # moved to hparams.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 '''
 poses bounds.npy
 '''
 #https://github.com/Fyusion/LLFF
 
-class N3DV_dataset(BaseDataset):
-    def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
-        super().__init__(root_dir, split, downsample)
-
-        self.read_intrinsics()
-
-        if kwargs.get('read_meta', True):
-            self.read_meta(split)
-
-    def read_intrinsics(self):
-        with open(os.path.join(self.root_dir, "transforms_train.json"), 'r') as f:
-            meta = json.load(f)
-
-        assert isinstance(meta,dict)
-
-        if 'w' in meta.keys():
-            # for n3dv should be in meta
-            w=int(meta['w']*self.downsample)
-            h=int(meta['h']*self.downsample)
-        else:
-            w = h = int(800*self.downsample)
-
-        if 'camera_angle_x' in meta.keys():
-
-
-            fx = fy = 0.5*800/np.tan(0.5*meta['camera_angle_x'])*self.downsample
-        else:
-            assert 'fl_x' in meta.keys()
-            assert 'fl_y' in meta.keys()
-            fx,fy=meta['fl_x'], meta['fl_y']
-
-        K = np.float32([[fx, 0, w/2],
-                        [0, fy, h/2],
-                        [0,  0,   1]])
-        print(np.linalg.cond(K))
-        self.K = torch.FloatTensor(K)
-        self.directions = get_ray_directions(h, w, self.K)
-        self.img_wh = (w, h)
-    torch.autograd.set_detect_anomaly(True)
-    def read_meta(self, split):
-        rays = []
-        poses = []
-        times = []
-
-
-        poses_arr = np.load(os.path.join(self.root_dir, "poses_bounds.npy"))
-        poses = poses_arr[:, :-2].reshape([-1, 3, 5])  # (N_cams, 3, 5)
-        poses = poses[:,:,:-1]
-
-
-
-        visualize_poses(poses)
-        self.near_fars = poses_arr[:, -2:]
-
-
-        if split == 'trainval':
-            with open(os.path.join(self.root_dir, "transforms_train.json"), 'r') as f:
-                frames = json.load(f)["frames"]
-            with open(os.path.join(self.root_dir, "transforms_val.json"), 'r') as f:
-                frames+= json.load(f)["frames"]
-        else:
-            with open(os.path.join(self.root_dir, f"transforms_{split}.json"), 'r') as f:
-                frames = json.load(f)["frames"]
-
-        print(f'Loading {len(frames)} {split} images ...')
-        self.rays = []
-        self.poses = []
-        self.times =[]
-
-
-        if os.path.exists(os.path.join(self.root_dir,f'clean_data_{split}.pt')):
-            file_=torch.load(os.path.join(self.root_dir,f'clean_data_{split}.pt'))
-            self.rays,self.poses,self.times=file_[0],file_[1],file_[2]
-            print(f'successfully loaded pre-generated data')
-
-            return
-        for frame in tqdm(frames):
-            c2w = np.array(frame['transform_matrix'])[:3, :4]
-            time_t= frame['time']
-            #print(np.linalg.cond(c2w))
-            # determine scale
-            if 'Jrender_Dataset' in self.root_dir:
-                c2w[:, :2] *= -1 # [left up front] to [right down front]
-                folder = self.root_dir.split('/')
-                scene = folder[-1] if folder[-1] != '' else folder[-2]
-                if scene=='Easyship':
-                    pose_radius_scale = 1.2
-                elif scene=='Scar':
-                    pose_radius_scale = 1.8
-                elif scene=='Coffee':
-                    pose_radius_scale = 2.5
-                elif scene=='Car':
-                    pose_radius_scale = 0.8
-                else:
-                    pose_radius_scale = 1.5
-            else:
-                c2w[:, 1:3] *= -1 # [right up back] to [right down front]
-                pose_radius_scale = 1.5
-            c2w[:, 3] /= np.linalg.norm(c2w[:, 3])/pose_radius_scale
-
-            # add shift
-            if 'Jrender_Dataset' in self.root_dir:
-                if scene=='Coffee':
-                    c2w[1, 3] -= 0.4465
-                elif scene=='Car':
-                    c2w[0, 3] -= 0.7
-            poses += [c2w]
-            times += [time_t]
-
-            try:
-
-                filename=frame['file_path']
-                assert isinstance(filename,str)
-                if not filename.endswith('jpg') or not filename.endswith('png'):
-                    img_path = os.path.join(self.root_dir, f"{frame['file_path']}")
-                else:
-                    img_path = os.path.join(self.root_dir, f"{frame['file_path']}.png")
-                img = read_image(img_path, self.img_wh)
-                rays += [img]
-            except:
-                warnings.warn('something wrong while reading image')
-        '''
-        use temporary variable to avoid memory leak
-        '''
-        if len(rays)>0:
-            self.rays = torch.FloatTensor(np.stack(rays)) # (N_images, hw, ?)
-        self.poses = torch.FloatTensor(poses) # (N_images, 3, 4)
-        self.times = torch.FloatTensor(times) # (N_images, 1)
-
-        data_list=[self.rays,self.poses,self.times]
-        torch.save(data_list,os.path.join(self.root_dir,f'clean_data_{split}.pt'))
 
 
 class N3DV_dataset_2(BaseDataset):
@@ -239,6 +130,9 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=self.times.shape[1]
 
             assert self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+
+
+
             try:
                 assert self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1) or self.importance is None
             except:
@@ -252,12 +146,15 @@ class N3DV_dataset_2(BaseDataset):
                 '''
                 use double precision to let the probabilities summing to 1.
                 '''
+                self.global_mean = torch.mean(self.rays_rgbs.to(0),dim=0)
                 self.importance = self.importance.to(0).double()
                 std_mean_=torch.std_mean(self.importance)
                 max_, min_ =torch.max(self.importance),torch.min(self.importance)
 
                 #self.importance = torch.pow(self.importance, 0.8)
                 self.importance /= torch.sum(self.importance)
+            self.global_mean=self.global_mean.to('cpu')
+
             self.importance=self.importance.to('cpu').numpy().astype(np.float64)
 
 
@@ -370,6 +267,145 @@ class N3DV_dataset_2(BaseDataset):
 
         return time_indices,chunk_size
 
+    def hexplane_sample(self):
+        self.sample_stages=2
+
+        key_f_num=30
+        stage_1_gamma= 0.001
+        stage_2_gamma= 0.02 # TODO: see hexplane code for the detailed configuration.
+        stage_2_alpha= 0.1
+        # self.sample_stages
+        if self.sample_stages==1:
+            # Stage 1: randomly sample a single image from an arbitrary camera.
+            # And sample a batch of rays from all the rays of the image based on the difference of global median and local values.
+            # Stage 1 only samples key-frames, which is the frame every self.cfg.data.key_f_num frames.
+
+            '''
+                self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+                self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1)
+                self.times: [N_time] tensor
+            '''
+
+            cam_i = np.random.choice(self.rays_rgbs.shape[0])
+            t_index_i = np.random.choice(
+                self.N_time // key_f_num
+            )
+            rgb_train_importance = (
+                self.rays_rgbs.view(self.N_cam,self.N_time,-1,3)[cam_i, t_index_i * key_f_num]
+                .view(-1, 3)
+            )
+
+            frame_time = self.times[ cam_i, t_index_i * key_f_num]
+
+            # Calcualte the probability of sampling each ray based on the difference of global median and local values.
+            probability = GM_Resi(
+                rgb_train_importance, self.global_mean[cam_i], stage_1_gamma
+            )
+            print(probability.shape)
+            select_inds = torch.multinomial(
+                probability, self.batch_size//2
+            )
+
+
+
+
+
+            rgb_train_importance = rgb_train_importance[select_inds]
+
+            im_idx= torch.full((self.batch_size//2,),cam_i,dtype=torch.int32)
+            times_= frame_time.expand(self.batch_size//2)
+            tmp = {'img_idxs': im_idx, 'pix_idxs': select_inds,
+                   'times': times_,
+                   'rgb': rgb_train_importance[:, :3]}
+
+
+
+
+
+        elif (
+                self.sample_stages == 2
+        ):
+            # Stage 2: basically the same as stage 1, but samples all the frames instead of only key-frames.
+
+            '''
+                self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
+                self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1)
+                self.times: [N_time] tensor
+            '''
+
+            cam_i = np.random.choice(self.rays_rgbs.shape[0])
+            t_index_i = np.random.choice(
+                self.N_time
+            )
+            rgb_train_importance = (
+                self.rays_rgbs.view(self.N_cam,self.N_time,-1,3)[cam_i, t_index_i ]
+                .view(-1, 3)
+            )
+
+            frame_time = self.times[ cam_i, t_index_i ]
+
+            # Calcualte the probability of sampling each ray based on the difference of global median and local values.
+            probability = GM_Resi(
+                rgb_train_importance, self.global_mean[cam_i], stage_2_gamma
+            )
+
+            select_inds = torch.multinomial(
+                probability, self.batch_size//2
+            )
+
+            rgb_train_importance = rgb_train_importance[select_inds]
+
+            cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size // 2, p=None, replace=True)
+            time_indices_2 = np.random.choice(self.N_time, self.batch_size // 2, p=None, replace=True)
+            ray_indices_2 = np.random.choice(self.W * self.H, self.batch_size // 2, p=None, replace=True)
+
+            im_idx= torch.full((self.batch_size//2,),cam_i,dtype=torch.int32)
+            times_=torch.full((self.batch_size//2,),frame_time.item(),dtype=torch.float)[:,None]
+
+
+            cam_idxs = np.concatenate([im_idx, cam_idxs_2], axis=0)
+            times_ = np.concatenate([ times_, self.times[im_idx, time_indices_2]], axis=0)
+            ray_indices = np.concatenate([select_inds, ray_indices_2], axis=0)
+
+            rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs_2, time_indices_2, ray_indices_2]
+            rgb_train_importance=torch.cat([rgb_train_importance,rgbs],dim=0)
+            tmp = {'img_idxs': cam_idxs, 'pix_idxs': ray_indices,
+                   'times': times_,
+                   'rgb': rgb_train_importance[:, :3]}
+
+
+
+
+        else:
+            # Stage 3: randomly sample one frame and sample a batch of rays from the sampled frame.
+            # TO sample a batch of rays from this frame, we calcualate the value changes of rays compared to nearby timesteps, and sample based on the value changes.
+            cam_i = np.random.choice(self.rays_rgbs.shape[0])
+            N_time = self.N_time
+            # Sample two adjacent time steps within a range of 25 frames.
+            t_index_i = np.random.choice(N_time)
+            index_2 = np.random.choice(
+                min(N_time, t_index_i + 25) - max(t_index_i - 25, 0)
+            ) + max(t_index_i - 25, 0)
+            rgb_train_importance = (
+                train_dataset.all_rgbs[cam_i, t_index_i].view(-1, 3).to(self.device)
+            )
+            rgb_ref = (
+                train_dataset.all_rgbs[cam_i, index_2].view(-1, 3).to(self.device)
+            )
+            rays_train = train_dataset.all_rays[cam_i].view(-1, 6)
+            frame_time = train_dataset.all_times[cam_i, t_index_i]
+            # Calcualte the temporal difference between the two frames as sampling probability.
+            probability = torch.clamp(
+                1 / 3 * torch.norm(rgb_train_importance - rgb_ref, p=1, dim=-1),
+                min=self.cfg.data.stage_3_alpha,
+            )
+            select_inds = torch.multinomial(
+                probability, self.cfg.optim.batch_size
+            ).to(rays_train.device)
+            rays_train = rays_train[select_inds]
+            rgb_train_importance = rgb_train_importance[select_inds]
+            frame_time = torch.ones_like(rays_train[:, 0:1]) * frame_time
+        return tmp
 
     def generate_importance_sampling_indices(self,epochs=10):
         t0 = datetime.datetime.now()
@@ -391,14 +427,23 @@ class N3DV_dataset_2(BaseDataset):
 
     def __getitem__(self, idx):
         sample={}
+        sample['t_trunk_size'] = self.batch_size
+
         if self.split.startswith('train'):
             '''
             self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
             self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1)
             self.times: [N_time] tensor
             '''
+            if self.ray_sampling_strategy =='hirachy':
 
-            if self.ray_sampling_strategy == 'importance_time_batch':
+                tmp=  self.hexplane_sample()
+                #for k,v in tmp.items():
+                #    print(k,v.shape)
+                sample.update(tmp)
+
+
+            elif self.ray_sampling_strategy == 'importance_time_batch':
 
                 flatten_indices=self.cached_faltten_indices[idx + self.current_epoch*len(self),:]
                 structured_rgb=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)

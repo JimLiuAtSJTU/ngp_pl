@@ -287,11 +287,13 @@ class NGP_time_code(nn.Module):
         nan_check(x)
         nan_check(t)
         assert x.shape[0] == t.shape[0]
+
         try:
             time_code = self.time_latent_code(t)
         except RuntimeError:
-            print(t.shape)
+            print(f't.shape,{t.shape}')
             print(t)
+            exit(0)
             time_code = self.time_latent_code(t)
 
         nan_check(time_code)

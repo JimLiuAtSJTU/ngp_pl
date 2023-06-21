@@ -39,7 +39,7 @@ This implementation has **strict** requirements due to dependencies on other lib
     * Install `torch-scatter` following their [instruction](https://github.com/rusty1s/pytorch_scatter#installation)
     * Install `tinycudann` following their [instruction](https://github.com/NVlabs/tiny-cuda-nn#pytorch-extension) (pytorch extension)
     * Install `apex` following their [instruction](https://github.com/NVIDIA/apex#linux)
-    * Install pytorch-lightning 2.0.2
+    * Install pytorch-lightning 2.0.3
     * Install core requirements by `pip install -r requirements.txt`
 
 * Cuda extension: Upgrade `pip` to >= 22.1 and run `pip install models/csrc/` (please run this each time you `pull` the code)

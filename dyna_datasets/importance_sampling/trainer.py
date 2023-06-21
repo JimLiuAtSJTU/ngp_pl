@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 from hexplane.render.render import OctreeRender_trilinear_fast as renderer
 from hexplane.render.render import evaluation
 from hexplane.render.util.Reg import TVLoss, compute_dist_loss
-from hexplane.render.util.Sampling import GM_Resi, cal_n_samples
+from Sampling import GM_Resi, cal_n_samples
 from hexplane.render.util.util import N_to_reso
 
 

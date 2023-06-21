@@ -205,13 +205,32 @@ class Module(torch.nn.Module):
 		batch_size_granularity = int(_C.batch_size_granularity())
 		padded_batch_size = (batch_size + batch_size_granularity-1) // batch_size_granularity * batch_size_granularity
 
-		x_padded = x if batch_size == padded_batch_size else torch.nn.functional.pad(x, [0, 0, 0, padded_batch_size - batch_size])
-		output = _module_function.apply(
-			self.native_tcnn_module,
-			x_padded.to(torch.float).contiguous(),
-			self.params.to(_torch_precision(self.native_tcnn_module.param_precision())).contiguous(),
-			self.loss_scale
-		)
+		try:
+			x_padded = x if batch_size == padded_batch_size else torch.nn.functional.pad(x, [0, 0, 0, padded_batch_size - batch_size])
+		except:
+			print(f'error occurred during padding.')
+			print(f'input shape = {x.shape}')
+			print(f'batch size and padded batch size ={batch_size},{padded_batch_size}')
+			difference = padded_batch_size - batch_size
+
+			x_padded = x if batch_size == padded_batch_size else torch.nn.functional.pad(x, [difference//2,difference-difference//2] )
+
+
+		try:
+			output = _module_function.apply(
+				self.native_tcnn_module,
+				x_padded.to(torch.float).contiguous(),
+				self.params.to(_torch_precision(self.native_tcnn_module.param_precision())).contiguous(),
+				self.loss_scale
+			)
+		except:
+			print(torch.max(x_padded),torch.min(x_padded))
+			output = _module_function.apply(
+				self.native_tcnn_module,
+				x_padded.to(torch.float).contiguous(),
+				self.params.to(_torch_precision(self.native_tcnn_module.param_precision())).contiguous(),
+				self.loss_scale
+			)
 		return output[:batch_size, :self.n_output_dims]
 
 	def __getstate__(self):

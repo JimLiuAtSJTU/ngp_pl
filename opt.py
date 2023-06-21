@@ -10,7 +10,7 @@ def get_opts():
 
     parser.add_argument('--model_type', type=int, default=1,choices=[0,1,-1],
                         help='0 for ngp_time, 1 for ngp_time_plus')
-    parser.add_argument('--update_interval', type=int, default=8,
+    parser.add_argument('--update_interval', type=int, default=16,
                         help='update interval of the grids')
 
 
@@ -50,8 +50,8 @@ def get_opts():
     # training options
     parser.add_argument('--batch_size', type=int, default=512, # 512 is OK
                         help='number of rays in a batch')
-    parser.add_argument('--ray_sampling_strategy', type=str, default='batch_time',
-                        choices=['all_images', 'same_image','all_time','batch_time','same_time','importance_time_batch'],
+    parser.add_argument('--ray_sampling_strategy', type=str, default='hirachy',
+                        choices=['all_images', 'same_image','all_time','batch_time','same_time','importance_time_batch','hirachy'],
                         help='''
                         all_images: uniformly from all pixels of ALL images
                         same_image: uniformly from all pixels of a SAME image

@@ -105,7 +105,7 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
-        self.distortion_loss_step = 300
+        self.distortion_loss_step = 300000 # disable it
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
@@ -145,94 +145,6 @@ class DNeRFSystem(LightningModule):
         self.process_cache['validation_epoch']=[]
         self.use_trunk_to_avoid_OOM=False
         self.val_version_dir=None
-    def forward(self, batch, split):
-
-        if split=='train':
-            return self.forward_train(batch,split)
-        else:
-            assert split=='test'
-            return self.forward_inference(batch,split)
-
-
-
-    def forward_train(self,batch, split):
-
-        start_=batch['start']
-        end_=batch['end']
-
-        #for i in batch.keys():
-        #    print(i,batch[i])
-        poses = self.poses[batch['img_idxs'][start_:end_]]
-        directions = self.directions[batch['pix_idxs'][start_:end_]]
-        times=batch['times'][start_:end_]
-        if self.hparams.optimize_ext:
-            raise NotImplementedError
-            dR = axisangle_to_R(self.dR[batch['img_idxs']])
-            poses[..., :3] = dR @ poses[..., :3]
-            poses[..., 3] += self.dT[batch['img_idxs']]
-        #print(f'poses {self.poses},{self.poses.shape}'
-        #      f'directions,{self.directions},{self.directions.shape}')
-        rays_o, rays_d = get_rays(directions, poses)
-        rays_o=rays_o.contiguous()
-        rays_d=rays_d.contiguous()
-        #print(f'rays_o{rays_o},{rays_o.shape}'
-        #      f'rays_d{rays_d},{rays_d.shape}'
-        #      f'')
-        #rays_all=batch['rays']
-        kwargs = {'test_time': split!='train',
-                  'times':times,
-                  'random_bg': self.hparams.random_bg}
-
-        if self.hparams.scale > 0.5:
-            kwargs['exp_step_factor'] = 1/256
-        if self.hparams.use_exposure:
-            kwargs['exposure'] = batch['exposure']
-
-        if self.hparams.ray_sampling_strategy in ['batch_time','importance_time_batch' ]:
-            kwargs['t_grid_indx']= batch['t_grid_indx']
-
-        #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
-
-        return self.render_function(self.model, rays_o, rays_d, **kwargs)
-
-
-    def forward_inference(self,batch, split):
-
-        poses = batch['pose']
-        directions = self.directions
-        times=batch['times']
-
-        if self.hparams.optimize_ext:
-            dR = axisangle_to_R(self.dR[batch['img_idxs']])
-            poses[..., :3] = dR @ poses[..., :3]
-            poses[..., 3] += self.dT[batch['img_idxs']]
-
-        rays_o, rays_d = get_rays(directions, poses)
-
-        kwargs = {'test_time': split!='train',
-                  'times': times.to(self.device),
-                  'random_bg': self.hparams.random_bg}
-        '''
-        increase trunk size to get better inference performance!
-        '''
-
-        if self.hparams.scale > 0.5:
-            kwargs['exp_step_factor'] = 1/256
-        if self.hparams.use_exposure:
-            kwargs['exposure'] = batch['exposure']
-        try:
-            assert not self.use_trunk_to_avoid_OOM
-            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
-        except:
-            warnings.warn('use trunks to avoid OOM! performance may be downgraded!')
-            kwargs['trunks'] = 32768 * 4096
-            '''
-            increase trunk size to get better inference performance!
-            '''
-            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
-            self.use_trunk_to_avoid_OOM = True
-        return result_
-
     def setup(self, stage):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
@@ -377,6 +289,7 @@ class DNeRFSystem(LightningModule):
             batch['start']=start_
             end_=(i+1)*batch['t_trunk_size']
             batch['end']=end_
+            assert start_<end_
             batch['t_grid_indx']=i
 
             results_trunk = self(batch, split='train')
@@ -429,6 +342,94 @@ class DNeRFSystem(LightningModule):
         self.log('train/psnr', psnr_sum/trunk_numbers,True)
 
         return loss
+
+    def forward(self, batch, split):
+
+        if split=='train':
+            return self.forward_train(batch,split)
+        else:
+            assert split=='test'
+            return self.forward_inference(batch,split)
+
+
+
+    def forward_train(self,batch, split):
+
+        start_=batch['start']
+        end_=batch['end']
+
+        #for i in batch.keys():
+        #    print(i,batch[i])
+        poses = self.poses[batch['img_idxs'][start_:end_]]
+        directions = self.directions[batch['pix_idxs'][start_:end_]]
+        times=batch['times'][start_:end_]
+        if self.hparams.optimize_ext:
+            raise NotImplementedError
+            dR = axisangle_to_R(self.dR[batch['img_idxs']])
+            poses[..., :3] = dR @ poses[..., :3]
+            poses[..., 3] += self.dT[batch['img_idxs']]
+        #print(f'poses {self.poses},{self.poses.shape}'
+        #      f'directions,{self.directions},{self.directions.shape}')
+        rays_o, rays_d = get_rays(directions, poses)
+        rays_o=rays_o.contiguous()
+        rays_d=rays_d.contiguous()
+        #print(f'rays_o{rays_o},{rays_o.shape}'
+        #      f'rays_d{rays_d},{rays_d.shape}'
+        #      f'')
+        #rays_all=batch['rays']
+        kwargs = {'test_time': split!='train',
+                  'times':times,
+                  'random_bg': self.hparams.random_bg}
+
+        if self.hparams.scale > 0.5:
+            kwargs['exp_step_factor'] = 1/256
+        if self.hparams.use_exposure:
+            kwargs['exposure'] = batch['exposure']
+
+        if self.hparams.ray_sampling_strategy in ['batch_time','importance_time_batch','hirachy' ]:
+            kwargs['t_grid_indx']= batch['t_grid_indx']
+
+        #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
+
+        return self.render_function(self.model, rays_o, rays_d, **kwargs)
+
+
+    def forward_inference(self,batch, split):
+
+        poses = batch['pose']
+        directions = self.directions
+        times=batch['times']
+
+        if self.hparams.optimize_ext:
+            dR = axisangle_to_R(self.dR[batch['img_idxs']])
+            poses[..., :3] = dR @ poses[..., :3]
+            poses[..., 3] += self.dT[batch['img_idxs']]
+
+        rays_o, rays_d = get_rays(directions, poses)
+
+        kwargs = {'test_time': split!='train',
+                  'times': times.to(self.device),
+                  'random_bg': self.hparams.random_bg}
+        '''
+        increase trunk size to get better inference performance!
+        '''
+
+        if self.hparams.scale > 0.5:
+            kwargs['exp_step_factor'] = 1/256
+        if self.hparams.use_exposure:
+            kwargs['exposure'] = batch['exposure']
+        try:
+            assert not self.use_trunk_to_avoid_OOM
+            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
+        except:
+            warnings.warn('use trunks to avoid OOM! performance may be downgraded!')
+            kwargs['trunks'] = 32768 * 4096
+            '''
+            increase trunk size to get better inference performance!
+            '''
+            result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
+            self.use_trunk_to_avoid_OOM = True
+        return result_
 
     def on_validation_start(self):
         torch.cuda.empty_cache()
