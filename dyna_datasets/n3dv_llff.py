@@ -272,7 +272,7 @@ class N3DV_dataset_2(BaseDataset):
 
         key_f_num=30
         stage_1_gamma= 0.001
-        stage_2_gamma= 0.02 # TODO: see hexplane code for the detailed configuration.
+        stage_2_gamma= 0.02 # from hexplane code
         stage_2_alpha= 0.1
         # self.sample_stages
         if self.sample_stages==1:
