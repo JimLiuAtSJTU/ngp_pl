@@ -147,9 +147,25 @@ class N3DV_dataset_2(BaseDataset):
                 use double precision to let the probabilities summing to 1.
                 '''
                 self.global_mean = torch.mean(self.rays_rgbs.to(0),dim=0)
+
+
                 self.importance = self.importance.to(0).double()
                 std_mean_=torch.std_mean(self.importance)
                 max_, min_ =torch.max(self.importance),torch.min(self.importance)
+                flag = False
+                if flag:
+                    stage_1_gamma = 0.001
+                    stage_2_gamma = 0.02  # from hexplane code
+                    stage_3_alpha = 0.1
+
+                    prob_rays = self.rays_rgbs.view(self.N_cam, self.N_time, -1, 3)
+
+                    self.prob_tmp = torch.zeros_like(prob_rays)
+                    for i in range(self.N_cam):
+                        self.prob_tmp[i] = GM_Resi(
+                            prob_rays[i], self.global_mean[i], stage_1_gamma
+                        )
+
 
                 #self.importance = torch.pow(self.importance, 0.8)
                 self.importance /= torch.sum(self.importance)
@@ -273,7 +289,7 @@ class N3DV_dataset_2(BaseDataset):
         key_f_num=30
         stage_1_gamma= 0.001
         stage_2_gamma= 0.02 # from hexplane code
-        stage_2_alpha= 0.1
+        stage_3_alpha= 0.1
         # self.sample_stages
         if self.sample_stages==1:
             # Stage 1: randomly sample a single image from an arbitrary camera.

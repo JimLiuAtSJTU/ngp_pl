@@ -105,7 +105,7 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
-        self.distortion_loss_step = 300000 # disable it
+        self.distortion_loss_step = 300* 60
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
@@ -116,8 +116,11 @@ class DNeRFSystem(LightningModule):
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
         if self.hparams.eval_lpips:
-            self.val_lpips = LearnedPerceptualImagePatchSimilarity('alex')
-            for p in self.val_lpips.net.parameters():
+            self.val_lpips_alex = LearnedPerceptualImagePatchSimilarity('alex')
+            self.val_lpips_vgg = LearnedPerceptualImagePatchSimilarity('vgg')
+            for p in self.val_lpips_alex.net.parameters():
+                p.requires_grad = False
+            for p in self.val_lpips_vgg.net.parameters():
                 p.requires_grad = False
 
         rgb_act = 'None' if self.hparams.use_exposure else 'Sigmoid'
@@ -494,10 +497,16 @@ class DNeRFSystem(LightningModule):
         logs['ssim'] = self.val_ssim.compute()
         self.val_ssim.reset()
         if self.hparams.eval_lpips:
-            self.val_lpips(torch.clip(rgb_pred*2-1, -1, 1),
-                           torch.clip(rgb_gt*2-1, -1, 1))
-            logs['lpips'] = self.val_lpips.compute()
-            self.val_lpips.reset()
+            self.val_lpips_alex(torch.clip(rgb_pred * 2 - 1, -1, 1),
+                                torch.clip(rgb_gt*2-1, -1, 1))
+            logs['lpips_alex'] = self.val_lpips_alex.compute()
+            self.val_lpips_alex.reset()
+
+            self.val_lpips_vgg(torch.clip(rgb_pred * 2 - 1, -1, 1),
+                                torch.clip(rgb_gt*2-1, -1, 1))
+            logs['lpips_vgg'] = self.val_lpips_vgg.compute()
+            self.val_lpips_vgg.reset()
+
 
         if not self.hparams.no_save_test: # save test image to disk
             idx = batch['img_idxs']
@@ -520,9 +529,13 @@ class DNeRFSystem(LightningModule):
         self.log('test/ssim', mean_ssim)
 
         if self.hparams.eval_lpips:
-            lpipss = torch.stack([x['lpips'] for x in outputs])
-            mean_lpips = lpipss.mean()
-            self.log('test/lpips_vgg', mean_lpips)
+            lpipss_vgg = torch.stack([x['lpips_vgg'] for x in outputs])
+            mean_lpips_vgg = lpipss_vgg.mean()
+            self.log('test/lpips_vgg', mean_lpips_vgg)
+            lpipss_alex = torch.stack([x['lpips_alex'] for x in outputs])
+            mean_lpips_alex = lpipss_alex.mean()
+            self.log('test/lpips_alex', mean_lpips_alex)
+
 
 
         imgs = sorted(glob.glob(os.path.join(self.val_dir, 'rgb_*.png')))
