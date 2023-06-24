@@ -244,6 +244,7 @@ __global__ void kernel_grid(
 		max_level = (max_level * num_grid_features) / N_FEATURES_PER_LEVEL;
 	}
 
+	// if this thread is out of range, set output to 0. do not interpolate, and do not compute gradient.
 	if (level >= max_level + 1e-3f) {
 		if (encoded_positions) {
 			TCNN_PRAGMA_UNROLL
@@ -269,13 +270,14 @@ __global__ void kernel_grid(
 	const float scale = grid_scale(level, log2_per_level_scale, base_resolution);
 	const uint32_t resolution = grid_resolution(scale);
 
-	float pos[N_POS_DIMS];
+	float pos[N_POS_DIMS]; //output
 	float pos_derivative[N_POS_DIMS];
 	uint32_t pos_grid[N_POS_DIMS];
 
 	if (interpolation_type == InterpolationType::Nearest || interpolation_type == InterpolationType::Linear) {
 		TCNN_PRAGMA_UNROLL
 		for (uint32_t dim = 0; dim < N_POS_DIMS; ++dim) {
+			// lzh: interpolation process are in this function. maybe?
 			pos_fract(positions_in(dim, i), &pos[dim], &pos_derivative[dim], &pos_grid[dim], scale, identity_fun, identity_derivative);
 		}
 	} else {
@@ -312,6 +314,15 @@ __global__ void kernel_grid(
 	}
 
 	if (encoded_positions) {
+		// lzh: linear interpolation process are here? 
+        // CAUTION:: DCT-NERF 
+        // MAY IMPLEMENT DCT-NERF in this cuda function, to avoid changing the output dims.
+        // SINCE changing the output dims is very dangerous in CUDA / C++, if you are not the original author.
+		// do not very sure where the interpolation codes are.
+		// consider debug the code.
+
+
+
 		// N-linear interpolation
 		vector_t<T, N_FEATURES_PER_LEVEL> result = {};
 
@@ -938,14 +949,14 @@ public:
 #endif
 
 	GridEncodingTemplated(
-		uint32_t n_features,
-		uint32_t log2_hashmap_size,
-		uint32_t base_resolution,
-		float per_level_scale,
-		bool stochastic_interpolation,
-		InterpolationType interpolation_type,
+		uint32_t n_features,           
+		uint32_t log2_hashmap_size,    // log2_T
+		uint32_t base_resolution,     //base reso. of the grid
+		float per_level_scale,		// scale factor between levels
+		bool stochastic_interpolation, 	//	whether to use stochastic interpolation
+		InterpolationType interpolation_type, //	which interpolation to use
 		GridType grid_type
-	) :
+	) :				
 	m_n_features{n_features},
 	m_log2_hashmap_size{log2_hashmap_size},
 	m_base_resolution{base_resolution},
@@ -954,7 +965,7 @@ public:
 	m_interpolation_type{interpolation_type},
 	m_grid_type{grid_type}
 	{
-		m_n_levels = div_round_up(m_n_features, N_FEATURES_PER_LEVEL);
+		m_n_levels = div_round_up(m_n_features, N_FEATURES_PER_LEVEL); 		// number of levels
 		uint32_t offset = 0;
 
 		if (m_n_levels > MAX_N_LEVELS) {
@@ -994,7 +1005,7 @@ public:
 		m_offset_table.data[m_n_levels] = offset;
 		m_offset_table.size = m_n_levels+1;
 
-		m_n_params = m_offset_table.data[m_n_levels] * N_FEATURES_PER_LEVEL;
+		m_n_params = m_offset_table.data[m_n_levels] * N_FEATURES_PER_LEVEL;    // total number of params, given by num_of levels and features perlevel
 
 		m_n_output_dims = m_n_features;
 

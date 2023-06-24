@@ -105,7 +105,7 @@ class DNeRFSystem(LightningModule):
 
         self.warmup_steps = 256
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
-        self.distortion_loss_step = 300* 60
+        self.distortion_loss_step = 300* 60 #if hparams.ray_sampling_strategy=='hirachy' else 300
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
@@ -489,6 +489,8 @@ class DNeRFSystem(LightningModule):
         self.val_psnr(results['rgb'], rgb_gt)
         logs['psnr'] = self.val_psnr.compute()
         self.val_psnr.reset()
+
+        logs['batch_size']=self.hparams.batch_size
 
         w, h = self.train_dataset.img_wh
         rgb_pred = rearrange(results['rgb'], '(h w) c -> 1 c h w', h=h)
