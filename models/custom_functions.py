@@ -3,7 +3,7 @@ import vren
 from torch.cuda.amp import custom_fwd, custom_bwd
 from torch_scatter import segment_csr
 from einops import rearrange
-
+import vren_custom
 
 class RayAABBIntersector(torch.autograd.Function):
     """
@@ -158,6 +158,58 @@ class VolumeRenderer(torch.autograd.Function):
                                     ctx.T_threshold)
         return dL_dsigmas, dL_drgbs, None, None, None, None
 
+
+
+
+
+'''
+Custom CUDA extension for computing T_inf.
+'''
+class VolumeRenderer_Custom(torch.autograd.Function):
+    """
+    Volume rendering with different number of samples per ray
+    Used in training only
+
+    Inputs:
+        sigmas: (N)
+        rgbs: (N, 3)
+        deltas: (N)
+        ts: (N)
+        rays_a: (N_rays, 3) ray_idx, start_idx, N_samples
+                meaning each entry corresponds to the @ray_idx th ray,
+                whose samples are [start_idx:start_idx+N_samples]
+        T_threshold: float, stop the ray if the transmittance is below it
+
+    Outputs:
+        total_samples: int, total effective samples
+        opacity: (N_rays)
+        depth: (N_rays)
+        rgb: (N_rays, 3)
+        ws: (N) sample point weights
+    """
+    @staticmethod
+    @custom_fwd(cast_inputs=torch.float32)
+    def forward(ctx, sigmas, rgbs, deltas, ts, rays_a, T_threshold):
+        total_samples, opacity,T_inf, depth, rgb, ws = \
+            vren_custom.composite_train_fw(sigmas, rgbs, deltas, ts,
+                                    rays_a, T_threshold)
+        ctx.save_for_backward(sigmas, rgbs, deltas, ts, rays_a,
+                              opacity,T_inf, depth, rgb, ws)
+        ctx.T_threshold = T_threshold
+        return total_samples.sum(), opacity,T_inf, depth, rgb, ws
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, dL_dtotal_samples, dL_dopacity,dL_dT_inf, dL_ddepth, dL_drgb, dL_dws):
+        sigmas, rgbs, deltas, ts, rays_a, \
+        opacity, T_inf , depth, rgb, ws = ctx.saved_tensors
+        dL_dsigmas, dL_drgbs = \
+            vren_custom.composite_train_bw(dL_dopacity,dL_dT_inf, dL_ddepth, dL_drgb, dL_dws,
+                                    sigmas, rgbs, ws, deltas, ts,
+                                    rays_a,
+                                    opacity,T_inf, depth, rgb,
+                                    ctx.T_threshold)
+        return dL_dsigmas, dL_drgbs, None, None, None, None
 
 
 class VolumeRenderer_2(torch.autograd.Function):
