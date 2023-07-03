@@ -215,7 +215,7 @@ class Module(torch.nn.Module):
 
 			x_padded = x if batch_size == padded_batch_size else torch.nn.functional.pad(x, [difference//2,difference-difference//2] )
 
-
+			exit(11)
 		try:
 			output = _module_function.apply(
 				self.native_tcnn_module,
@@ -231,6 +231,7 @@ class Module(torch.nn.Module):
 				self.params.to(_torch_precision(self.native_tcnn_module.param_precision())).contiguous(),
 				self.loss_scale
 			)
+			exit(11)
 		return output[:batch_size, :self.n_output_dims]
 
 	def __getstate__(self):

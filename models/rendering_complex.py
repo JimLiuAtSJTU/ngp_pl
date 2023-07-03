@@ -10,6 +10,7 @@ MAX_SAMPLES = 1024
 NEAR_DISTANCE = 0.01
 
 
+BACKGROUND_FIELD=True
 
 
 from .debug_utils import nan_check,nan_dict_check
@@ -145,7 +146,6 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
     depth = torch.zeros(N_rays, device=device)
     rgb = torch.zeros(N_rays, 3, device=device)
     BACKGROUND_FIELD=kwargs.get('background_field',False)
-
     if BACKGROUND_FIELD:
         kwargs['rays_o']=rays_o
         kwargs['rays_d']=rays_d
@@ -200,17 +200,11 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
         #    else:
         #        extra[key]= torch.cat([extra[key],extra_[key]],dim=0)
 
-        if BACKGROUND_FIELD:
-            vren_custom.composite_test_fw(
-                sigmas, rgbs, deltas, ts,
-                hits_t[:, 0], alive_indices, kwargs.get('T_threshold', 1e-4),
-                N_eff_samples, opacity,T_inf, depth, rgb)
-        else:
-            vren.composite_test_fw(
-                sigmas, rgbs, deltas, ts,
-                hits_t[:, 0], alive_indices, kwargs.get('T_threshold', 1e-4),
-                N_eff_samples, opacity, depth, rgb)
 
+        vren.composite_test_fw(
+            sigmas, rgbs, deltas, ts,
+            hits_t[:, 0], alive_indices, kwargs.get('T_threshold', 1e-4),
+            N_eff_samples, opacity, depth, rgb)
         alive_indices = alive_indices[alive_indices>=0] # remove converged rays
 
 
@@ -296,27 +290,15 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     nan_check(rgbs)
     nan_dict_check(extra)
 
-    if BACKGROUND_FIELD:
-        (results['vr_samples'], results['opacity'],results['T_inf'],
-        results['depth'], results['rgb'], results['ws']) = \
-            VolumeRenderer_Custom.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
-                                 rays_a, kwargs.get('T_threshold', 1e-4))
+    (results['vr_samples'], results['opacity'],
+    results['depth'], results['rgb'], results['ws']) = \
+        VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
+                             rays_a, kwargs.get('T_threshold', 1e-4))
 
-        (results['vr_samples_dynamic'], results['opacity_dynamic'],results['T_inf_dynamic'],
-        results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
-            VolumeRenderer_Custom_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
-                                 rays_a, kwargs.get('T_threshold', 1e-4))
-    else:
-        (results['vr_samples'], results['opacity'],
-         results['depth'], results['rgb'], results['ws']) = \
-            VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
-                                 rays_a, kwargs.get('T_threshold', 1e-4))
-
-        (results['vr_samples_dynamic'], results['opacity_dynamic'],
-         results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
-            VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'],
-                                   results['ts'],
-                                   rays_a, kwargs.get('T_threshold', 1e-4))
+    (results['vr_samples_dynamic'], results['opacity_dynamic'],
+    results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
+        VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
+                             rays_a, kwargs.get('T_threshold', 1e-4))
 
     '''
     next step may be to optimize the reconstruction quality by using the "far background field" in SUDS.
@@ -348,7 +330,7 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
 
     if BACKGROUND_FIELD:
 
-        results['rgb'] = results['rgb']+ results['T_inf'][:,None] * env_RGB
+        results['rgb'] = results['rgb']+ T_inf[:,None] * env_RGB
     results.update(extra)
 
     results['sigma_entropy'] = sigma_entropy_function(sigmas)

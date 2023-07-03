@@ -81,7 +81,7 @@ class NGP_time_code(nn.Module):
         self.init_density_grids()
 
         self.background_rgb_mlp = tcnn.NetworkWithInputEncoding(
-            n_input_dims=7, n_output_dims=3,
+            n_input_dims=6, n_output_dims=3,
             encoding_config={
                 "otype": "Composite",
                 "nested": [
@@ -95,18 +95,18 @@ class NGP_time_code(nn.Module):
                         "otype": "SphericalHarmonics",
                         "degree": 4,
                     },
-                    {
-                        "n_dims_to_encode": 1,
-                        "otype": "Frequency",
-                        "n_frequencies": 8,
-                    }
+        #            {
+        #                "n_dims_to_encode": 1,
+        #                "otype": "Frequency",
+        #                "n_frequencies": 8,
+        #            }
 
                 ]
             },
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
-                "output_activation": "None",
+                "output_activation": "Sigmoid",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,  # maybe only one layer is enough?
             }
@@ -303,8 +303,8 @@ class NGP_time_code(nn.Module):
         if return_feat: return sigmas, h
         return sigmas
 
-    def background_field(self, rayso, raysd,t):
-        return self.background_rgb_mlp(torch.cat([rayso,raysd,t],-1))
+    def background_field(self, rayso, raysd):
+        return self.background_rgb_mlp(torch.cat([rayso,raysd],-1))
 
     def forward(self, x, d, **kwargs):
         """
@@ -327,13 +327,17 @@ class NGP_time_code(nn.Module):
                 assert rays_d.shape[0]==rays_o.shape[0]==t.shape[0]
 
             except:
-                print(rays_o.shape)
-                print(rays_d.shape)
-                print(t.shape)
-                exit(1)
+                #print(rays_o.shape)
+                #print(rays_d.shape)
+                #print(t.shape)
+                t=t.expand(
+                    rays_o.shape[0],1
+                )
+
+
             t = (t - self.t_min) / (self.t_max - self.t_min)
 
-            return self.background_field(rays_o, rays_d,t)
+            return self.background_field(rays_o, rays_d)
 
 
         try:

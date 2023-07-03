@@ -58,18 +58,23 @@ def get_opts():
                         ''')
     parser.add_argument('--num_epochs', type=int, default=30, # 300
                         help='number of training epochs')
-    parser.add_argument('--erode', type=int, default=1, # 300
+    parser.add_argument('--erode', type=int, default=1,
                         choices=[0,1],
                         help='whether perform complex erode in network')
+    parser.add_argument('--bg_field', type=int, default=1,
+                        choices=[0,1],
+                        help='whether to use background field')
+
     parser.add_argument('--sigma_entropy_loss_w', type=float, default=1e-4,
                         help='''weight of sigma_entropy loss (see losses.py), default is 1e-5 to see the entropy
                         ''')
 
     parser.add_argument('--opacity_loss_w', type=float, default=5e-3,
                         help='''weight of opacity loss (see losses.py), default is 1e-3 as kwea123.
+                        if use background field, the value is multipled by 1e-4.
                         ''')
     parser.add_argument('--opacity_loss_dynamic_w', type=float, default=5e-7,
-                        help='''weight of dynamic opacity loss (see losses.py), default is 1e-3 as kwea123.
+                        help='''weight of dynamic opacity loss (see losses.py)
                         ''')
 
     parser.add_argument('--entropy_loss_w', type=float, default=5e-3,

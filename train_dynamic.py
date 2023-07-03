@@ -86,9 +86,9 @@ def dir_to_indx(dir_str):
 
 # TODO: consider the following:
 #    1. how to implement the background field. to compensate for the outdoor scenery.
-#    2. using the importance sampling strategy, refer to hexplane code..
+#    2. using the importance sampling strategy, refer to hexplane code.. by importance sampling here is add flow consistency regularization...
 #    3. consider use the 2-stage training strategy...but may be very hard
-#    4. consider remove the static branch and add flow consistency regularization...
+#    4. consider remove the static branch?
 # TODO: tune the dct-nerf.
 #  1. how to deal with the cases that some of the motions are sometimes out of the grid bounds?
 #  2. occupancy grids updating strategy...
@@ -106,6 +106,14 @@ class DNeRFSystem(LightningModule):
         self.warmup_steps = 256
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
         self.distortion_loss_step = 300* 60 #if hparams.ray_sampling_strategy=='hirachy' else 300
+
+        self.importance_sampling_start_epoch = [60,140]
+
+        self.bg_field=bool(self.hparams.bg_field)
+
+        if self.bg_field:
+            self.hparams.opacity_loss_w*=1e-4
+            self.hparams.opacity_loss_dynamic_w*=1e-4
 
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
@@ -155,7 +163,11 @@ class DNeRFSystem(LightningModule):
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
-        self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
+
+        if self.hparams.ray_sampling_strategy !='hirachy':
+            self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
+        else:
+            self.train_dataset.ray_sampling_strategy = 'batch_time' # first use batch_time to warm up;
         if self.hparams.ray_sampling_strategy=='importance_time_batch':
             self.train_dataset.generate_importance_sampling_indices(self.hparams.cache_importance_epochs)
         self.train_dataset.set_t_resolution(1)
@@ -179,7 +191,22 @@ class DNeRFSystem(LightningModule):
 
         net_params = []
         for n, p in self.named_parameters():
-            if n not in ['dR', 'dT']: net_params += [p]
+            if n not in ['dR', 'dT']:
+                if n not in ['model.background_rgb_mlp.params']:
+                    #print(n,p)
+                    net_params += [{
+                        'params':p,
+                    }]
+                else:
+                    #print(n,p)
+
+                    net_params += [
+                        {
+                        'params':p,
+                        'lr':self.hparams.lr/5,
+                            'momentum':0.95,
+                    }
+                    ]
 
         opts = []
         #https://github.com/NVlabs/tiny-cuda-nn/issues/219
@@ -217,6 +244,7 @@ class DNeRFSystem(LightningModule):
         #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
         #                    weight_decay=5e-9 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
         #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
+        # background_rgb_mlp
         self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
                                  weight_decay=5e-9
 
@@ -251,6 +279,11 @@ class DNeRFSystem(LightningModule):
                                         self.poses,
                                         self.train_dataset.img_wh)
     def on_train_epoch_end(self):
+        if self.hparams.ray_sampling_strategy =='hirachy':
+            if self.current_epoch+1 == self.importance_sampling_start_epoch[0]:
+                self.train_dataset.ray_sampling_strategy='hirachy'
+
+
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
         self.train_dataset.current_epoch=self.current_epoch+1
@@ -382,6 +415,7 @@ class DNeRFSystem(LightningModule):
         #rays_all=batch['rays']
         kwargs = {'test_time': split!='train',
                   'times':times,
+                  'background_field': self.bg_field,
                   'random_bg': self.hparams.random_bg}
 
         if self.hparams.scale > 0.5:
@@ -412,10 +446,9 @@ class DNeRFSystem(LightningModule):
 
         kwargs = {'test_time': split!='train',
                   'times': times.to(self.device),
+                  'background_field':self.bg_field,
                   'random_bg': self.hparams.random_bg}
-        '''
-        increase trunk size to get better inference performance!
-        '''
+
 
         if self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
@@ -424,7 +457,7 @@ class DNeRFSystem(LightningModule):
         try:
             assert not self.use_trunk_to_avoid_OOM
             result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
-        except:
+        except RuntimeError:
             warnings.warn('use trunks to avoid OOM! performance may be downgraded!')
             kwargs['trunks'] = 32768 * 4096
             '''
@@ -606,7 +639,7 @@ if __name__ == '__main__':
                       accelerator='gpu',
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
-                      benchmark=True,
+                      benchmark=True,reload_dataloaders_every_n_epochs=60,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
                       precision=16)
     t0=datetime.datetime.now()

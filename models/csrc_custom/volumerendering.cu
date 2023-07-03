@@ -154,7 +154,7 @@ __global__ void composite_train_bw_kernel(
             dL_dopacity[ray_idx]*(1-O) + // gradient from opacity
             dL_ddepth[ray_idx]*(ts[s]*T-(D-d)) + // gradient from depth
 
-            (-dL_dT_inf[s]*deltas[s]*T_inf[s]) + // gradient from T_inf,     d T_inf / d sigma_i = - delta_i * T_inf
+            (-dL_dT_inf[ray_idx]*deltas[s]*T_inf[ray_idx]) + // gradient from T_inf,     d T_inf / d sigma_i = - delta_i * T_inf
 
             T*dL_dws[s]-(dL_dws_times_ws_sum-dL_dws_times_ws[s])              // gradient from ws
         );
