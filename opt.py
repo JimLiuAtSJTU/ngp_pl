@@ -61,7 +61,7 @@ def get_opts():
     parser.add_argument('--erode', type=int, default=1,
                         choices=[0,1],
                         help='whether perform complex erode in network')
-    parser.add_argument('--bg_field', type=int, default=1,
+    parser.add_argument('--bg_field', type=int, default=0,
                         choices=[0,1],
                         help='whether to use background field')
 

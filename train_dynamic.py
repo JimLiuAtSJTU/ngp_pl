@@ -192,6 +192,7 @@ class DNeRFSystem(LightningModule):
         net_params = []
         for n, p in self.named_parameters():
             if n not in ['dR', 'dT']:
+                # TODO: tune the lr of static and dynamic branch? maybe Without the dynamic branch?
                 if n not in ['model.background_rgb_mlp.params']:
                     #print(n,p)
                     net_params += [{
@@ -337,7 +338,7 @@ class DNeRFSystem(LightningModule):
 
             nan_dict_check(summed_loss_trunk)
 
-            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
+            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples','static_weight_average'])
             with torch.no_grad():
                 psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
 
@@ -375,6 +376,8 @@ class DNeRFSystem(LightningModule):
         self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
         # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
         self.log('train/vr_s', named_results['vr_samples']/len(batch['rgb']), True)
+        self.log('train/static_weight', named_results['static_weight_average']/len(named_results),True)
+
         self.log('train/psnr', psnr_sum/trunk_numbers,True)
 
         return loss
@@ -641,7 +644,7 @@ if __name__ == '__main__':
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       benchmark=True,reload_dataloaders_every_n_epochs=60,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
-                      precision=16)
+                      precision='16-mixed')
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True

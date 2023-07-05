@@ -12,6 +12,9 @@ from kornia.utils.grid import create_meshgrid3d
 from .debug_utils import nan_check
 
 
+SUDS_SHADOW=True
+
+
 class NGP_time_code(nn.Module):
     def __init__(self, scale, rgb_act='Sigmoid'):
         super().__init__()
@@ -61,12 +64,16 @@ class NGP_time_code(nn.Module):
             )
         sigma_factor_dim = 0
 
+        '''
+        May cause the static network to be useless.
+        '''
+
         self.xyz_t_fusion_mlp = tcnn.Network(
             n_input_dims=64, n_output_dims=48,
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
-                "output_activation": "ReLU",
+                "output_activation": "None", # may cause
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
             }
@@ -148,25 +155,25 @@ class NGP_time_code(nn.Module):
                 },
                 network_config={
                     "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
+                    "activation": "ReLU", # LeakyReLU seem not to be better
                     "output_activation": "None",
                     "n_neurons": 64,
                     "n_hidden_layers": 1,  # maybe only one layer is enough?
                 }
             )
         elif config == 'time_latent_code':
-
+            # TODO: consider the following.
+            '''
+            the 1st thing is the parameter of latent code config.
+            the 2nd thing is to not use ReLU activation of the static branch.  
+            '''
+            # increasing hash table size is of no benefits.
             L = 10;
             F = 4;  # 40 dim
             log2_T = 8;  # 256 hash tables.
             N_min = 30  # 300 frames, each part = 50framse   total, 10s.
-            highest_reso = self.time_stamps * 0.666  # lower than the dimension
+            highest_reso = self.time_stamps * 0.666  # lower than the time stamp numbers
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
-            '''
-            n_input_dims should be 1 in the time setting.
-            don't know whether this will lead to nan issue.
-            and it is suprising that this will not lead to a warning / error.
-            '''
             return tcnn.Encoding(
                 n_input_dims=1,
                 encoding_config={
@@ -227,8 +234,10 @@ class NGP_time_code(nn.Module):
         s_rgb,d_rgb: static, dynamic
         rho: shadow factor in [0,1]. consider using a sigmoid.
         '''
-        sigma = s_sigma + d_sigma * (1 - rho)
-
+        if SUDS_SHADOW:
+            sigma = s_sigma + d_sigma
+        else:
+            sigma = s_sigma + d_sigma * (1 - rho)
         eps = 1e-6
         w_static = s_sigma / torch.clamp(sigma, min=eps)
         # print(f's_sigma{s_sigma}{s_sigma.shape}')
@@ -238,7 +247,10 @@ class NGP_time_code(nn.Module):
         # print(f'rho{rho,}{rho.shape}')
 
         # unsqueeze
-        rgb = (w_static)[:, None] * s_rgb
+        if SUDS_SHADOW:
+            rgb = (w_static* (1 - rho))[:, None] * s_rgb
+        else:
+            rgb = (w_static)[:, None] * s_rgb
         # print(f'rgb,{rgb.shape}')
         # print(f's_rgb,{s_rgb.shape}')
 
@@ -370,7 +382,7 @@ class NGP_time_code(nn.Module):
         rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
         nan_check(rgb_static)
 
-        # use relu as activation, initialized to be 0
+
         sigma_dynamic, h_dyna = self.dynamic_density(x, t, return_feat=True)
         nan_check(sigma_dynamic)
 
@@ -390,6 +402,7 @@ class NGP_time_code(nn.Module):
                                                  d_rgb=rgb_dynamic[:, :-1],
                                                  rho=rgb_dynamic[:, -1])
         extra['static_weight'] = weight
+        extra['static_weight_average'] = weight.detach().mean()
 
         return sigma, rgb, extra
 
