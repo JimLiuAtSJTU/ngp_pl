@@ -42,6 +42,10 @@ def get_opts():
                         help='random seed')
     parser.add_argument('--regenerate', type=int, default=0,choices=[0,1] ,
                         help='whether regenerate dataset, 0 for false, 1 for true')
+
+    parser.add_argument('--static_only', type=int, default=0,choices=[0,1] ,
+                        help='whether use static data for debug scenario')
+
     parser.add_argument('--cache_importance_epochs', type=int, default=10 ,
                         help='set the cache size of importance sampled indices. '
                              'default is cache the array with size'

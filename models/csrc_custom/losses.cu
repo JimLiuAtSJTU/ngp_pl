@@ -5,7 +5,7 @@
 
 
 // for details of the formulae, please see https://arxiv.org/pdf/2206.05085.pdf
-
+// thrust documentation https://thrust.github.io/doc/group__prefixsums_ga7be5451c96d8f649c8c43208fcebb8c3.html
 template <typename scalar_t>
 __global__ void prefix_sums_kernel(
     const scalar_t* __restrict__ ws,

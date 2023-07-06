@@ -14,7 +14,7 @@ from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 from .importance_sampling.Sampling import GM_Resi,GM_function
 
-STATIC_ONLY=False #debug only
+#self.STATIC_ONLY=True #debug only
 
 val_indx_N3DV=0
 
@@ -51,6 +51,7 @@ class N3DV_dataset_2(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
         regenerate=kwargs.get('regenerate',False)
+        self.STATIC_ONLY=kwargs.get('static_only',False)
         self.use_importance_sampling= kwargs.get('use_importance_sampling',True)
 
         self.ray_sampling_strategy=None # to be set by train_dynamic.py
@@ -178,9 +179,10 @@ class N3DV_dataset_2(BaseDataset):
             self.N_time=len(self.times)
             assert self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
-        if STATIC_ONLY:
+        if self.STATIC_ONLY:
 
-
+            self.ray_sampling_strategy='all_images'
+            warnings.warn('static only ! setting ray sampling strategy to all images!')
             self.importance=None
             self.rays_rgbs=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
             self.rays_rgbs=self.rays_rgbs[:,0:1,:,:]
@@ -516,7 +518,7 @@ class N3DV_dataset_2(BaseDataset):
 
                     #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
 
-                if STATIC_ONLY:
+                if self.STATIC_ONLY:
                     '''
                     only have one time stamp. the index is zero.
                     Does not mean the time value is zero!
@@ -588,7 +590,7 @@ class N3DV_dataset_2(BaseDataset):
         #    return self.N_cam*self.N_time* self.W * self.H
         #return self.N_time*self.N_cam
     def __len__(self):
-        if STATIC_ONLY:
+        if self.STATIC_ONLY:
             return self.poses.shape[0]
 
         return self.N_time

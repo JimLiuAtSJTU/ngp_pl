@@ -152,6 +152,7 @@ class DNeRFSystem(LightningModule):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
                   'regenerate':bool(self.hparams.regenerate),
+                  'static_only':bool(self.hparams.static_only),
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
@@ -218,7 +219,7 @@ class DNeRFSystem(LightningModule):
         #                    weight_decay=5e-9 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
         #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
         self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
-                                 weight_decay=5e-9
+                                 weight_decay=5e-8
 
                                  ) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
@@ -337,6 +338,7 @@ class DNeRFSystem(LightningModule):
         self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
         self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
         self.log('train/distortion_loss_w', self.hparams.distortion_loss_w)
+        self.log('train/static_weight', named_results['static_weight_average']/len(named_results),True)
 
         # ray marching samples per ray (occupied space on the ray)
         self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
@@ -608,7 +610,7 @@ if __name__ == '__main__':
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
                       benchmark=True,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
-                      precision=16)
+                      precision='16-mixed')
     t0=datetime.datetime.now()
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True

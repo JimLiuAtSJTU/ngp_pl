@@ -1473,9 +1473,9 @@ GridEncoding<T>* create_grid_encoding_templated_1(uint32_t n_dims_to_encode, con
 		case 4: return create_grid_encoding_templated_2<T, 4, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 8: return create_grid_encoding_templated_2<T, 8, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 16: return create_grid_encoding_templated_2<T, 16, HASH_TYPE>(n_dims_to_encode, encoding);
-		//case 32: return create_grid_encoding_templated_2<T, 32, HASH_TYPE>(n_dims_to_encode, encoding);
+		case 20: return create_grid_encoding_templated_2<T, 20, HASH_TYPE>(n_dims_to_encode, encoding);
 
-		default: throw std::runtime_error{"GridEncoding: n_features_per_level must be 1, 2, 4, 8, 16. others are not enabled/supported"};
+		default: throw std::runtime_error{"GridEncoding: n_features_per_level must be 1, 2, 4, 8, 16, 20. others are not enabled/supported"};
 	}
 }
 

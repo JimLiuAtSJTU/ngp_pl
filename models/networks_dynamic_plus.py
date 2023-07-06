@@ -13,9 +13,9 @@ from .debug_utils import nan_check
 
 
 class NGP_time_code(nn.Module):
-    def __init__(self, scale, rgb_act='Sigmoid'):
+    def __init__(self, scale, rgb_act='Sigmoid',static_only=False):
         super().__init__()
-
+        self.static_only=static_only
         self.rgb_act = rgb_act
         # scene bounding box
         self.scale = scale
@@ -156,16 +156,13 @@ class NGP_time_code(nn.Module):
             )
         elif config == 'time_latent_code':
 
-            L = 10;
-            F = 4;  # 40 dim
-            log2_T = 8;  # 256 hash tables.
-            N_min = 30  # 300 frames, each part = 50framse   total, 10s.
+            L = 2;
+            F = 20;  # 40 dim
+            log2_T = 9;  # 256 hash tables.
+            N_min = 120  # 300 frames, each part = 50framse   total, 10s.
             highest_reso = self.time_stamps * 0.666  # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
             '''
-            n_input_dims should be 1 in the time setting.
-            don't know whether this will lead to nan issue.
-            and it is suprising that this will not lead to a warning / error.
             '''
             return tcnn.Encoding(
                 n_input_dims=1,
@@ -386,6 +383,7 @@ class NGP_time_code(nn.Module):
                                                  d_rgb=rgb_dynamic[:, :-1],
                                                  rho=rgb_dynamic[:, -1])
         extra['static_weight'] = weight
+        extra['static_weight_average'] = weight.detach().mean()
 
         return sigma, rgb, extra
 
@@ -530,9 +528,10 @@ class NGP_time_code(nn.Module):
                 t_end = t_interval * ((t_ + 1) / self.time_grid_resolution) + self.t_min
                 rand_t = torch.rand_like(xyzs_w[:, 0:1]) * (t_end - t_start_) + t_end
 
+                if self.static_only:
+                    rand_t=torch.zeros_like(rand_t)
                 density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w, rand_t,
                                                                                                   return_feat=False)
-            # print(1)
             if erode:
                 # My own logic. decay more the cells that are visible to few cameras
                 decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)
