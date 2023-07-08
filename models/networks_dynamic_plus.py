@@ -532,6 +532,11 @@ class NGP_time_code(nn.Module):
                     rand_t=torch.zeros_like(rand_t)
                 density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w, rand_t,
                                                                                                   return_feat=False)
+            # TODO: consider the decay.
+            '''
+            the 0.95 factor of decay may be not suitable for dynamic setting.
+            0.95 is very good for static setting.
+            '''
             if erode:
                 # My own logic. decay more the cells that are visible to few cameras
                 decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)

@@ -3,7 +3,7 @@
 
 
 
-
+python gpu_wait.py
 
 
 
