@@ -12,13 +12,10 @@ from kornia.utils.grid import create_meshgrid3d
 from .debug_utils import nan_check
 
 
-SUDS_SHADOW=True
-
-
 class NGP_time_code(nn.Module):
-    def __init__(self, scale, rgb_act='Sigmoid'):
+    def __init__(self, scale, rgb_act='Sigmoid',static_only=False):
         super().__init__()
-
+        self.static_only=static_only
         self.rgb_act = rgb_act
         # scene bounding box
         self.scale = scale
@@ -64,16 +61,12 @@ class NGP_time_code(nn.Module):
             )
         sigma_factor_dim = 0
 
-        '''
-        May cause the static network to be useless.
-        '''
-
         self.xyz_t_fusion_mlp = tcnn.Network(
             n_input_dims=64, n_output_dims=48,
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
-                "output_activation": "None", # may cause
+                "output_activation": "ReLU",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
             }
@@ -81,14 +74,14 @@ class NGP_time_code(nn.Module):
         self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
         self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64,
                                                   output_dims=3 + 1 + sigma_factor_dim)  # rho for another dim
-
+        self.fine_tune=False
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
 
         self.init_density_grids()
 
         self.background_rgb_mlp = tcnn.NetworkWithInputEncoding(
-            n_input_dims=6, n_output_dims=3,
+            n_input_dims=7, n_output_dims=3,
             encoding_config={
                 "otype": "Composite",
                 "nested": [
@@ -102,18 +95,18 @@ class NGP_time_code(nn.Module):
                         "otype": "SphericalHarmonics",
                         "degree": 4,
                     },
-        #            {
-        #                "n_dims_to_encode": 1,
-        #                "otype": "Frequency",
-        #                "n_frequencies": 8,
-        #            }
+                    {
+                        "n_dims_to_encode": 1,
+                        "otype": "Frequency",
+                        "n_frequencies": 8,
+                    }
 
                 ]
             },
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
-                "output_activation": "Sigmoid",
+                "output_activation": "None",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,  # maybe only one layer is enough?
             }
@@ -155,25 +148,22 @@ class NGP_time_code(nn.Module):
                 },
                 network_config={
                     "otype": "FullyFusedMLP",
-                    "activation": "ReLU", # LeakyReLU seem not to be better
+                    "activation": "ReLU",
                     "output_activation": "None",
                     "n_neurons": 64,
                     "n_hidden_layers": 1,  # maybe only one layer is enough?
                 }
             )
         elif config == 'time_latent_code':
-            # TODO: consider the following.
-            '''
-            the 1st thing is the parameter of latent code config.
-            the 2nd thing is to not use ReLU activation of the static branch.  
-            '''
-            # increasing hash table size is of no benefits.
-            L = 10;
-            F = 4;  # 40 dim
-            log2_T = 8;  # 256 hash tables.
-            N_min = 30  # 300 frames, each part = 50framse   total, 10s.
-            highest_reso = self.time_stamps * 0.666  # lower than the time stamp numbers
+
+            L = 2;
+            F = 20;  # 40 dim
+            log2_T = 9;  # 256 hash tables.
+            N_min = 120  # 300 frames, each part = 50framse   total, 10s.
+            highest_reso = self.time_stamps * 0.666  # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
+            '''
+            '''
             return tcnn.Encoding(
                 n_input_dims=1,
                 encoding_config={
@@ -234,10 +224,8 @@ class NGP_time_code(nn.Module):
         s_rgb,d_rgb: static, dynamic
         rho: shadow factor in [0,1]. consider using a sigmoid.
         '''
-        if SUDS_SHADOW:
-            sigma = s_sigma + d_sigma
-        else:
-            sigma = s_sigma + d_sigma * (1 - rho)
+        sigma = s_sigma + d_sigma * (1 - rho)
+
         eps = 1e-6
         w_static = s_sigma / torch.clamp(sigma, min=eps)
         # print(f's_sigma{s_sigma}{s_sigma.shape}')
@@ -247,10 +235,7 @@ class NGP_time_code(nn.Module):
         # print(f'rho{rho,}{rho.shape}')
 
         # unsqueeze
-        if SUDS_SHADOW:
-            rgb = (w_static* (1 - rho))[:, None] * s_rgb
-        else:
-            rgb = (w_static)[:, None] * s_rgb
+        rgb = (w_static)[:, None] * s_rgb
         # print(f'rgb,{rgb.shape}')
         # print(f's_rgb,{s_rgb.shape}')
 
@@ -275,7 +260,12 @@ class NGP_time_code(nn.Module):
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
 
         nan_check(x)
-        h = self.encoder_static(x)
+        if self.fine_tune:
+            with torch.no_grad():
+                h = self.encoder_static(x)
+        else:
+            h = self.encoder_static(x)
+
         nan_check(h)
         sigmas = TruncExp.apply(h[:, 0])
         if return_feat: return sigmas, h
@@ -291,32 +281,43 @@ class NGP_time_code(nn.Module):
             sigmas: (N)
         """
         x = (x - self.xyz_min) / (self.xyz_max - self.xyz_min)
-        static_code = self.encoder_dynamic(x)
-        # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
+        t = (t - self.t_min) / (self.t_max - self.t_min)
+
+        if self.fine_tune:
+            with torch.no_grad():
+                static_code = self.encoder_dynamic(x)
+        else:
+            static_code = self.encoder_dynamic(x)
+
+            # # https://github.com/NVlabs/tiny-cuda-nn/issues/286
         # tcnn supports inputs within [0,1]
 
-        t = (t - self.t_min) / (self.t_max - self.t_min)
         nan_check(x)
         nan_check(t)
         assert x.shape[0] == t.shape[0]
 
         try:
-            time_code = self.time_latent_code(t)
+            if self.fine_tune:
+                with torch.no_grad():
+                    time_code = self.time_latent_code(t)
+            else:
+                time_code = self.time_latent_code(t)
+
         except RuntimeError:
             print(f't.shape,{t.shape}')
             print(t)
-            exit(0)
-            time_code = self.time_latent_code(t)
+            exit(1)
 
         nan_check(time_code)
         h = self.xyz_t_fusion_mlp(torch.cat([static_code, time_code], 1))
+        #h = torch.cat([h,static_code,time_code],-1)
         nan_check(h)
         sigmas = TruncExp_2.apply(h[:, 0])
         if return_feat: return sigmas, h
         return sigmas
 
-    def background_field(self, rayso, raysd):
-        return self.background_rgb_mlp(torch.cat([rayso,raysd],-1))
+    def background_field(self, rayso, raysd,t):
+        return self.background_rgb_mlp(torch.cat([rayso,raysd,t],-1))
 
     def forward(self, x, d, **kwargs):
         """
@@ -339,17 +340,13 @@ class NGP_time_code(nn.Module):
                 assert rays_d.shape[0]==rays_o.shape[0]==t.shape[0]
 
             except:
-                #print(rays_o.shape)
-                #print(rays_d.shape)
-                #print(t.shape)
-                t=t.expand(
-                    rays_o.shape[0],1
-                )
-
-
+                print(rays_o.shape)
+                print(rays_d.shape)
+                print(t.shape)
+                exit(1)
             t = (t - self.t_min) / (self.t_max - self.t_min)
 
-            return self.background_field(rays_o, rays_d)
+            return self.background_field(rays_o, rays_d,t)
 
 
         try:
@@ -378,11 +375,14 @@ class NGP_time_code(nn.Module):
         # use exp as activation, initialized to be 1
         sigma_static, h_static = self.static_density(x, return_feat=True)
         nan_check(sigma_static)
-
-        rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
+        if self.fine_tune:
+            with torch.no_grad():
+                rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
+        else:
+            rgb_static = self.rgb_net_static(torch.cat([d, h_static], 1))
         nan_check(rgb_static)
 
-
+        # use relu as activation, initialized to be 0
         sigma_dynamic, h_dyna = self.dynamic_density(x, t, return_feat=True)
         nan_check(sigma_dynamic)
 
@@ -547,9 +547,16 @@ class NGP_time_code(nn.Module):
                 t_end = t_interval * ((t_ + 1) / self.time_grid_resolution) + self.t_min
                 rand_t = torch.rand_like(xyzs_w[:, 0:1]) * (t_end - t_start_) + t_end
 
+                if self.static_only:
+                    rand_t=torch.zeros_like(rand_t)
                 density_grid_tmp[c, indices] = self.static_density(xyzs_w) + self.dynamic_density(xyzs_w, rand_t,
                                                                                                   return_feat=False)
-            # print(1)
+            # TODO: consider the decay.
+            '''
+            important!!!
+            the 0.95 factor of decay may be not suitable for dynamic setting.
+            0.95 is very good for static setting.
+            '''
             if erode:
                 # My own logic. decay more the cells that are visible to few cameras
                 decay = torch.clamp(decay ** (1 / self.count_grid), 0.1, 0.95)

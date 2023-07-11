@@ -45,8 +45,9 @@ from torch.optim.adam import Adam
 # metrics
 from torchmetrics import (
     PeakSignalNoiseRatio, 
-    StructuralSimilarityIndexMeasure
+    StructuralSimilarityIndexMeasure,MultiScaleStructuralSimilarityIndexMeasure
 )
+from pytorch_msssim import ms_ssim
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 # pytorch-lightning
@@ -60,7 +61,7 @@ from utils import slim_ckpt, load_ckpt
 from dyna_datasets.ray_utils import visualize_poses
 #import warnings; warnings.filterwarnings("ignore")
 from models.debug_utils import nan_dict_check,nan_check
-
+import pynvml
 visualize_poses_flag=False
 import warnings
 def depth2img(depth):
@@ -86,9 +87,9 @@ def dir_to_indx(dir_str):
 
 # TODO: consider the following:
 #    1. how to implement the background field. to compensate for the outdoor scenery.
-#    2. using the importance sampling strategy, refer to hexplane code.. by importance sampling here is add flow consistency regularization...
+#    2. using the importance sampling strategy, refer to hexplane code..
 #    3. consider use the 2-stage training strategy...but may be very hard
-#    4. consider remove the static branch?
+#    4. consider remove the static branch and add flow consistency regularization...
 # TODO: tune the dct-nerf.
 #  1. how to deal with the cases that some of the motions are sometimes out of the grid bounds?
 #  2. occupancy grids updating strategy...
@@ -107,14 +108,6 @@ class DNeRFSystem(LightningModule):
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
         self.distortion_loss_step = 300* 60 #if hparams.ray_sampling_strategy=='hirachy' else 300
 
-        self.importance_sampling_start_epoch = [60,140]
-
-        self.bg_field=bool(self.hparams.bg_field)
-
-        if self.bg_field:
-            self.hparams.opacity_loss_w*=1e-4
-            self.hparams.opacity_loss_dynamic_w*=1e-4
-
         self.loss = NeRFLoss(lambda_opacity=self.hparams.opacity_loss_w,
                              lambda_entropy=self.hparams.entropy_loss_w,
                              sigma_entropy=self.hparams.sigma_entropy_loss_w,
@@ -123,6 +116,7 @@ class DNeRFSystem(LightningModule):
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
+        self.val_ms_ssim = MultiScaleStructuralSimilarityIndexMeasure(data_range=1)
         if self.hparams.eval_lpips:
             self.val_lpips_alex = LearnedPerceptualImagePatchSimilarity('alex')
             self.val_lpips_vgg = LearnedPerceptualImagePatchSimilarity('vgg')
@@ -160,17 +154,16 @@ class DNeRFSystem(LightningModule):
         dataset = dataset_dict[self.hparams.dataset_name]
         kwargs = {'root_dir': self.hparams.root_dir,
                   'regenerate':bool(self.hparams.regenerate),
+                  'static_only':bool(self.hparams.static_only),
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
-
-        if self.hparams.ray_sampling_strategy !='hirachy':
-            self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
-        else:
-            self.train_dataset.ray_sampling_strategy = 'batch_time' # first use batch_time to warm up;
+        self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
         if self.hparams.ray_sampling_strategy=='importance_time_batch':
             self.train_dataset.generate_importance_sampling_indices(self.hparams.cache_importance_epochs)
         self.train_dataset.set_t_resolution(1)
+        pynvml.nvmlInit()
+        self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(1)
 
         self.test_dataset = dataset(split='test', **kwargs)
     def configure_optimizers(self):
@@ -191,23 +184,7 @@ class DNeRFSystem(LightningModule):
 
         net_params = []
         for n, p in self.named_parameters():
-            if n not in ['dR', 'dT']:
-                # TODO: tune the lr of static and dynamic branch? maybe Without the dynamic branch?
-                if n not in ['model.background_rgb_mlp.params']:
-                    #print(n,p)
-                    net_params += [{
-                        'params':p,
-                    }]
-                else:
-                    #print(n,p)
-
-                    net_params += [
-                        {
-                        'params':p,
-                        'lr':self.hparams.lr/5,
-                            'momentum':0.95,
-                    }
-                    ]
+            if n not in ['dR', 'dT']: net_params += [p]
 
         opts = []
         #https://github.com/NVlabs/tiny-cuda-nn/issues/219
@@ -245,9 +222,8 @@ class DNeRFSystem(LightningModule):
         #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
         #                    weight_decay=5e-9 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
         #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
-        # background_rgb_mlp
         self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
-                                 weight_decay=5e-9
+                                 weight_decay=5e-8
 
                                  ) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
@@ -280,11 +256,8 @@ class DNeRFSystem(LightningModule):
                                         self.poses,
                                         self.train_dataset.img_wh)
     def on_train_epoch_end(self):
-        if self.hparams.ray_sampling_strategy =='hirachy':
-            if self.current_epoch+1 == self.importance_sampling_start_epoch[0]:
-                self.train_dataset.ray_sampling_strategy='hirachy'
 
-
+        self.model.fine_tune=False#(self.current_epoch> 120)
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
         self.train_dataset.current_epoch=self.current_epoch+1
@@ -338,7 +311,7 @@ class DNeRFSystem(LightningModule):
 
             nan_dict_check(summed_loss_trunk)
 
-            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples','static_weight_average'])
+            named_results=dict_sum(named_results,results_trunk,keys=['vr_samples','rm_samples'])
             with torch.no_grad():
                 psnr_sum+=self.train_psnr(results_trunk['rgb'], batch['rgb'][start_:end_])
 
@@ -371,13 +344,16 @@ class DNeRFSystem(LightningModule):
         self.log('train/opacity_loss_w', self.hparams.opacity_loss_w)
         self.log('train/entropy_loss_w', self.hparams.entropy_loss_w)
         self.log('train/distortion_loss_w', self.hparams.distortion_loss_w)
+        self.log('train/static_weight', named_results['static_weight_average']/len(named_results),True)
+
+        info = pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
+
+        self.log('train/gpu_memory_usage_MB',info.used / 1024 / 1024 , True)
 
         # ray marching samples per ray (occupied space on the ray)
         self.log('train/rm_s', named_results['rm_samples']/len(batch['rgb']), True)
         # volume rendering samples per ray (stops marching when transmittance drops below 1e-4)
         self.log('train/vr_s', named_results['vr_samples']/len(batch['rgb']), True)
-        self.log('train/static_weight', named_results['static_weight_average']/len(named_results),True)
-
         self.log('train/psnr', psnr_sum/trunk_numbers,True)
 
         return loss
@@ -418,7 +394,6 @@ class DNeRFSystem(LightningModule):
         #rays_all=batch['rays']
         kwargs = {'test_time': split!='train',
                   'times':times,
-                  'background_field': self.bg_field,
                   'random_bg': self.hparams.random_bg}
 
         if self.hparams.scale > 0.5:
@@ -449,9 +424,10 @@ class DNeRFSystem(LightningModule):
 
         kwargs = {'test_time': split!='train',
                   'times': times.to(self.device),
-                  'background_field':self.bg_field,
                   'random_bg': self.hparams.random_bg}
-
+        '''
+        increase trunk size to get better inference performance!
+        '''
 
         if self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
@@ -460,7 +436,7 @@ class DNeRFSystem(LightningModule):
         try:
             assert not self.use_trunk_to_avoid_OOM
             result_ = render(self.model, rays_o[:], rays_d[:], **kwargs)
-        except RuntimeError:
+        except:
             warnings.warn('use trunks to avoid OOM! performance may be downgraded!')
             kwargs['trunks'] = 32768 * 4096
             '''
@@ -501,7 +477,7 @@ class DNeRFSystem(LightningModule):
 
             self.val_dir = os.path.join(val_dir_root, self.val_version_dir, f'epoch_{self.current_epoch}')
             os.makedirs(self.val_dir, exist_ok=False)
-            print(f'validation result of epoch{self.current_epoch} will be saved at {self.val_dir}')
+            print(f'{ datetime.datetime.now()}, validation result of epoch{self.current_epoch} will be saved at {self.val_dir}')
 
     def validation_step(self, batch, batch_nb):
         rgb_gt = batch['rgb']
@@ -532,8 +508,18 @@ class DNeRFSystem(LightningModule):
         rgb_pred = rearrange(results['rgb'], '(h w) c -> 1 c h w', h=h)
         rgb_gt = rearrange(rgb_gt, '(h w) c -> 1 c h w', h=h)
         self.val_ssim(rgb_pred, rgb_gt)
+
         logs['ssim'] = self.val_ssim.compute()
+        ms_ssim_2=ms_ssim(rgb_pred,rgb_gt,data_range=1)
+        logs['ms_ssim'] = ms_ssim_2
+
+        logs['d_ssim'] = (1-logs['ms_ssim'])/2.0
+        info =pynvml.nvmlDeviceGetMemoryInfo(self.nvml_handle)
+        logs['gpu_mem'] = info.used / 1024 /1024
+
         self.val_ssim.reset()
+
+
         if self.hparams.eval_lpips:
             self.val_lpips_alex(torch.clip(rgb_pred * 2 - 1, -1, 1),
                                 torch.clip(rgb_gt*2-1, -1, 1))
@@ -563,8 +549,14 @@ class DNeRFSystem(LightningModule):
         self.log('test/psnr', mean_psnr, True)
 
         ssims = torch.stack([x['ssim'] for x in outputs])
+        ms_ssims= torch.stack([x['ms_ssim'] for x in outputs])
+        gpu_mem= max(([x['gpu_mem'] for x in outputs]))
+
         mean_ssim = ssims.mean()
         self.log('test/ssim', mean_ssim)
+        self.log('test/ms_ssim', ms_ssims.mean())
+        self.log('test/d_ssim', (1- ms_ssims.mean())/2.0)
+        self.log('test/gpu_mem', gpu_mem)
 
         if self.hparams.eval_lpips:
             lpipss_vgg = torch.stack([x['lpips_vgg'] for x in outputs])
@@ -642,7 +634,7 @@ if __name__ == '__main__':
                       accelerator='gpu',
                       devices=hparams.num_gpus,
                       num_sanity_val_steps=-1 if hparams.val_only else 0,
-                      benchmark=True,reload_dataloaders_every_n_epochs=60,
+                      benchmark=True,
          #             gradient_clip_val=10000,gradient_clip_algorithm='value',
                       precision='16-mixed')
     t0=datetime.datetime.now()

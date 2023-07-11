@@ -20,30 +20,10 @@ val_indx_N3DV=0
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+'''
+poses bounds.npy #https://github.com/Fyusion/LLFF
 
 '''
-poses bounds.npy
-'''
-#https://github.com/Fyusion/LLFF
 
 
 
@@ -183,11 +163,11 @@ class N3DV_dataset(BaseDataset):
 
             self.importance=None
             self.rays_rgbs=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
-            self.rays_rgbs=self.rays_rgbs[:,0:1,:,:]
+            self.rays_rgbs=self.rays_rgbs[:,200:201,:,:]
             if self.split=='train':
-                self.times = self.times[:, 0:1, :]
+                self.times = self.times[:, 200:201, :]
             else:
-                self.times=self.times[0:1]
+                self.times=self.times[200:201]
             self.N_time=1
 
     def set_t_resolution(self,reso):
