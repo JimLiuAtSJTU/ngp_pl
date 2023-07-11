@@ -14,7 +14,7 @@ from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 from .importance_sampling.Sampling import GM_Resi,GM_function
 
-STATIC_ONLY=False #debug only
+#self.STATIC_ONLY=True #debug only
 
 val_indx_N3DV=0
 
@@ -27,10 +27,11 @@ poses bounds.npy #https://github.com/Fyusion/LLFF
 
 
 
-class N3DV_dataset(BaseDataset):
+class N3DV_dataset_2(BaseDataset):
     def __init__(self, root_dir, split='train', downsample=1.0, **kwargs):
         super().__init__(root_dir, split, downsample)
         regenerate=kwargs.get('regenerate',False)
+        self.STATIC_ONLY=kwargs.get('static_only',False)
         self.use_importance_sampling= kwargs.get('use_importance_sampling',True)
 
         self.ray_sampling_strategy=None # to be set by train_dynamic.py
@@ -158,9 +159,10 @@ class N3DV_dataset(BaseDataset):
             self.N_time=len(self.times)
             assert self.rays_rgbs.shape == (self.N_cam, self.N_time , self.W * self.H, 3)
 
-        if STATIC_ONLY:
+        if self.STATIC_ONLY:
 
-
+            self.ray_sampling_strategy='all_images'
+            warnings.warn('static only ! setting ray sampling strategy to all images!')
             self.importance=None
             self.rays_rgbs=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
             self.rays_rgbs=self.rays_rgbs[:,200:201,:,:]
@@ -264,13 +266,12 @@ class N3DV_dataset(BaseDataset):
         return time_indices,chunk_size
 
     def hexplane_sample(self):
-
         self.sample_stages=2
 
         key_f_num=30
         stage_1_gamma= 0.001
-        stage_2_gamma= 0.001 # 0.02 from hexplane code
-        stage_3_alpha= 0.01
+        stage_2_gamma= 0.02 # from hexplane code
+        stage_3_alpha= 0.1
         # self.sample_stages
         if self.sample_stages==1:
             # Stage 1: randomly sample a single image from an arbitrary camera.
@@ -345,23 +346,23 @@ class N3DV_dataset(BaseDataset):
             probability = GM_Resi(
                 rgb_train_importance, self.global_mean[cam_i], stage_2_gamma
             )
-            imp_sample_size =self.batch_size//3 * 2
+
             select_inds = torch.multinomial(
-                probability, imp_sample_size
+                probability, self.batch_size//2
             )
 
             rgb_train_importance = rgb_train_importance[select_inds]
 
-            cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size - imp_sample_size, p=None, replace=True)
-            time_indices_2 = np.random.choice(self.N_time, self.batch_size - imp_sample_size, p=None, replace=True)
-            ray_indices_2 = np.random.choice(self.W * self.H, self.batch_size - imp_sample_size, p=None, replace=False)
+            cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size // 2, p=None, replace=True)
+            time_indices_2 = np.random.choice(self.N_time, self.batch_size // 2, p=None, replace=True)
+            ray_indices_2 = np.random.choice(self.W * self.H, self.batch_size // 2, p=None, replace=True)
 
-            im_idx= torch.full((imp_sample_size,),cam_i,dtype=torch.int32)
-            times_=torch.full((imp_sample_size,),frame_time.item(),dtype=torch.float)[:,None]
+            im_idx= torch.full((self.batch_size//2,),cam_i,dtype=torch.int32)
+            times_=torch.full((self.batch_size//2,),frame_time.item(),dtype=torch.float)[:,None]
 
 
             cam_idxs = np.concatenate([im_idx, cam_idxs_2], axis=0)
-            times_ = np.concatenate([ times_, self.times[cam_idxs_2, time_indices_2]], axis=0)
+            times_ = np.concatenate([ times_, self.times[im_idx, time_indices_2]], axis=0)
             ray_indices = np.concatenate([select_inds, ray_indices_2], axis=0)
 
             rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs_2, time_indices_2, ray_indices_2]
@@ -384,48 +385,24 @@ class N3DV_dataset(BaseDataset):
                 min(N_time, t_index_i + 25) - max(t_index_i - 25, 0)
             ) + max(t_index_i - 25, 0)
             rgb_train_importance = (
-                self.rays_rgbs.view(self.N_cam,self.N_time,-1,3)[cam_i, t_index_i ]
+                train_dataset.all_rgbs[cam_i, t_index_i].view(-1, 3).to(self.device)
             )
             rgb_ref = (
-                self.rays_rgbs[cam_i, index_2].view(-1, 3)
+                train_dataset.all_rgbs[cam_i, index_2].view(-1, 3).to(self.device)
             )
-            rays_train = self.rays_rgbs[cam_i].view(-1, 6)
-            frame_time = self.times[cam_i, t_index_i]
+            rays_train = train_dataset.all_rays[cam_i].view(-1, 6)
+            frame_time = train_dataset.all_times[cam_i, t_index_i]
             # Calcualte the temporal difference between the two frames as sampling probability.
             probability = torch.clamp(
                 1 / 3 * torch.norm(rgb_train_importance - rgb_ref, p=1, dim=-1),
-                min=stage_3_alpha,
+                min=self.cfg.data.stage_3_alpha,
             )
-            imp_sample_size =self.batch_size//3 * 2
-
             select_inds = torch.multinomial(
-                probability, imp_sample_size
+                probability, self.cfg.optim.batch_size
             ).to(rays_train.device)
-
-
-
-
+            rays_train = rays_train[select_inds]
             rgb_train_importance = rgb_train_importance[select_inds]
-
-            cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size -imp_sample_size, p=None, replace=True)
-            time_indices_2 = np.random.choice(self.N_time, self.batch_size -imp_sample_size, p=None, replace=True)
-            ray_indices_2 = np.random.choice(self.W * self.H, self.batch_size -imp_sample_size, p=None, replace=True)
-
-            im_idx= torch.full((imp_sample_size,),cam_i,dtype=torch.int32)
-            times_=torch.full((imp_sample_size,),frame_time.item(),dtype=torch.float)[:,None]
-
-            cam_idxs = np.concatenate([im_idx, cam_idxs_2], axis=0)
-            times_ = np.concatenate([ times_, self.times[cam_idxs_2, time_indices_2]], axis=0)
-            ray_indices = np.concatenate([select_inds, ray_indices_2], axis=0)
-
-            rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs_2, time_indices_2, ray_indices_2]
-            rgb_train_importance=torch.cat([rgb_train_importance,rgbs],dim=0)
-            tmp = {'img_idxs': cam_idxs, 'pix_idxs': ray_indices,
-                   'times': times_,
-                   'rgb': rgb_train_importance[:, :3]}
-
-
-
+            frame_time = torch.ones_like(rays_train[:, 0:1]) * frame_time
         return tmp
 
     def generate_importance_sampling_indices(self,epochs=10):
@@ -521,7 +498,7 @@ class N3DV_dataset(BaseDataset):
 
                     #time_indices = time_indices*np.ones(self.batch_size).astype(np.int)
 
-                if STATIC_ONLY:
+                if self.STATIC_ONLY:
                     '''
                     only have one time stamp. the index is zero.
                     Does not mean the time value is zero!
@@ -593,7 +570,7 @@ class N3DV_dataset(BaseDataset):
         #    return self.N_cam*self.N_time* self.W * self.H
         #return self.N_time*self.N_cam
     def __len__(self):
-        if STATIC_ONLY:
+        if self.STATIC_ONLY:
             return self.poses.shape[0]
 
         return self.N_time

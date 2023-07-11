@@ -4,11 +4,11 @@
 
 
 
+#python gpu_wait.py
 
 
 
-
-prefix="tune_importance_sampling_____2"
+prefix="import_new"
 
 for dir in     "cut_roasted_beef" "flame_salmon_1"  "flame_steak" "sear_steak" "cook_spinach" "coffee_martini"
 #for dir in      "flame_salmon_1"   "cook_spinach"
@@ -34,8 +34,5 @@ $b_size \
 2>&1 | tee -a $prefix$dir.log
 
 
-
 done
-
-
 
