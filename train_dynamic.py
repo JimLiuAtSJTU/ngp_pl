@@ -158,6 +158,8 @@ class DNeRFSystem(LightningModule):
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
+        self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 1 // 4
+
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
         if self.hparams.ray_sampling_strategy=='importance_time_batch':
             self.train_dataset.generate_importance_sampling_indices(self.hparams.cache_importance_epochs)
@@ -258,6 +260,16 @@ class DNeRFSystem(LightningModule):
     def on_train_epoch_end(self):
 
         self.model.fine_tune=False#(self.current_epoch> 120)
+        if self.current_epoch==60:
+            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 2 // 4
+            self.train_dataset.sample_stages=2
+        elif self.current_epoch==120:
+            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
+            self.train_dataset.sample_stages=2
+        elif self.current_epoch==180:
+            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
+            self.train_dataset.sample_stages=3
+
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
         self.train_dataset.current_epoch=self.current_epoch+1

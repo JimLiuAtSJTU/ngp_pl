@@ -62,7 +62,7 @@ def get_opts():
                         ''')
     parser.add_argument('--num_epochs', type=int, default=30, # 300
                         help='number of training epochs')
-    parser.add_argument('--erode', type=int, default=1, # 300
+    parser.add_argument('--erode', type=int, default=1,
                         choices=[0,1],
                         help='whether perform complex erode in network')
     parser.add_argument('--sigma_entropy_loss_w', type=float, default=1e-4,
