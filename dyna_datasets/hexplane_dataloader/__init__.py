@@ -47,7 +47,7 @@ def get_train_dataset(cfgs_custom:dict,is_stack=False):
 
     useful_data={
         'rgb':train_dataset.all_rgbs, # N_CAM, N_TIME*H*W,3
-        'importance': train_dataset.all_importances , # N_CAM, N_TIME*H*W, 1
+    #    'importance': train_dataset.all_importances , # N_CAM, N_TIME*H*W, 1
         'poses':train_dataset.poses, # N_CAM, 3,4
         'directions':train_dataset.directions,
         'times':train_dataset.all_times, #  time_frames 1D = N_TIMES

@@ -4,6 +4,7 @@ import argparse
 
 # remain identical to hexplane
 default_downsample=1/(2704/1024)/2
+#default_downsample=1/4
 
 def get_opts():
     parser = argparse.ArgumentParser()

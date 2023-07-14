@@ -13,17 +13,30 @@ from .color_utils import read_image
 from .base import BaseDataset
 from .hexplane_dataloader import get_test_dataset,get_train_dataset
 from .importance_sampling.Sampling import GM_Resi,GM_function
-
+import kornia
 #self.STATIC_ONLY=True #debug only
-
+import matplotlib as mpl
 val_indx_N3DV=0
-
+mpl.rcParams['figure.dpi']=600
+import matplotlib.pyplot as plt
 
 
 '''
 poses bounds.npy #https://github.com/Fyusion/LLFF
 
 '''
+def visualize_edges(edge_tensor,image_tensor):
+    # Convert the tensor to a float and normalize it to [0, 1]
+    # Apply the Canny edge detection algorithm
+    # Convert the edge tensor to a numpy array
+    edge_map = edge_tensor.squeeze().permute(1,2,0).to('cpu').numpy()
+    # Plot the original image and the edge map side by side
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.imshow(image_tensor.numpy())
+    ax1.set_title('Original Image')
+    ax2.imshow(edge_map)
+    ax2.set_title('Edge Map')
+    plt.show()
 
 
 
@@ -60,6 +73,7 @@ class N3DV_dataset_2(BaseDataset):
 
         self.setup_dataset(useful_data)
 
+        self.feature_detector_=kornia.filters.Canny(low_threshold=0.0001, high_threshold=0.0005, kernel_size=(1, 1), sigma=(0.01, 0.01))
 
 
     def setup_dataset(self, useful_data):
@@ -73,8 +87,8 @@ class N3DV_dataset_2(BaseDataset):
         self.rays=useful_data['rays']
 
         self.img_wh=useful_data['img_wh']
-        if self.split=='train' and self.use_importance_sampling:
-            self.importance=useful_data['importance']#.numpy().astype(np.float64) # convert to double precision
+        #if self.split=='train' and self.use_importance_sampling:
+        #    self.importance=useful_data['importance']#.numpy().astype(np.float64) # convert to double precision
 
         w,h=self.img_wh #using ngp ray direction characteristics
         assert w>h
@@ -113,26 +127,31 @@ class N3DV_dataset_2(BaseDataset):
             assert self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
 
 
-
-            try:
-                assert self.importance.shape == (self.N_cam,self.N_time, self.W * self.H, 1) or self.importance is None
-            except:
-                self.importance=self.importance.view(self.N_cam,self.N_time, self.W * self.H, 1)
-
-
-            if not isinstance(self.importance,torch.Tensor):
-                self.importance = torch.from_numpy(self.importance)
+            self.sobel_images=(self.rays_rgbs).view(self.N_cam, self.N_time, self.H, self.W, 3).clone()
 
             with torch.no_grad():
                 '''
                 use double precision to let the probabilities summing to 1.
                 '''
-                self.global_mean = torch.mean(self.rays_rgbs.to(0),dim=0)
+                self.global_mean = self.rays_rgbs.view(self.N_cam,self.N_time,self.W*self.H,3)
+                self.global_mean = torch.mean(self.global_mean.to(0),dim=1)
+                self.global_mean = self.global_mean.to('cpu')
+
+                for j in range(self.N_time):
+
+                    for i in range(self.N_cam):
+
+                        tmp=self.sobel_images[i,j].to(0).view(1, self.H, self.W, 3)
+                        tmp=tmp.permute(0, 3, 1, 2).contiguous()
+                        tmp = kornia.filters.sobel(tmp) # N_time, 3 H ,W
 
 
-                self.importance = self.importance.to(0).double()
-                std_mean_=torch.std_mean(self.importance)
-                max_, min_ =torch.max(self.importance),torch.min(self.importance)
+                        tmp = kornia.filters.gaussian_blur2d(tmp.pow(1/3),(5,5),(5,5))
+                        #visualize_edges(tmp,image_tensor=self.rays_rgbs.view(self.N_cam,self.N_time,self.H,self.W,3)[i,j])
+                        self.sobel_images[i,j]=tmp.permute(0, 2, 3, 1).to('cpu')
+
+                #edges= kornia.filters.sobel(this_img.permute(2, 0, 1).view(1, 3, self.H, self.W))
+
                 flag = False
                 if flag:
                     stage_1_gamma = 0.001
@@ -149,10 +168,7 @@ class N3DV_dataset_2(BaseDataset):
 
 
                 #self.importance = torch.pow(self.importance, 0.8)
-                self.importance /= torch.sum(self.importance)
-            self.global_mean=self.global_mean.to('cpu')
 
-            self.importance=self.importance.to('cpu').numpy().astype(np.float64)
 
 
         else:
@@ -163,7 +179,6 @@ class N3DV_dataset_2(BaseDataset):
 
             self.ray_sampling_strategy='all_images'
             warnings.warn('static only ! setting ray sampling strategy to all images!')
-            self.importance=None
             self.rays_rgbs=self.rays_rgbs.view(self.N_cam,self.N_time, self.W * self.H, 3)
             self.rays_rgbs=self.rays_rgbs[:,200:201,:,:]
             if self.split=='train':
@@ -269,14 +284,13 @@ class N3DV_dataset_2(BaseDataset):
 
 
         key_f_num=30
-        stage_1_gamma= 0.001
-        stage_2_gamma= 0.001 # 0.02 from hexplane code
+        stage_1_gamma= 0.01
+        stage_2_gamma= 0.02 # 0.02 from hexplane code
         stage_3_alpha= 0.1 # 0.1 from hexplane code
         # self.sample_stages
         if self.sample_stages==1:
             # Stage 1: randomly sample a single image from an arbitrary camera.
-            # And sample a batch of rays from all the rays of the image based on the difference of global median and local values.
-            # Stage 1 only samples key-frames, which is the frame every self.cfg.data.key_f_num frames.
+            # different from hexplane/ n3dv, the importance are defined by canny edge detector.
 
             '''
                 self.rays_rgbs.shape == (self.N_cam,self.N_time* self.W * self.H, 3)
@@ -288,38 +302,43 @@ class N3DV_dataset_2(BaseDataset):
             t_index_i = np.random.choice(
                 self.N_time // key_f_num
             )
+            # Calcualte the probability of sampling each ray based on the difference of global median and local values.
+            this_img=self.rays_rgbs.view(self.N_cam,self.N_time, self.H , self.W, 3)[cam_i,t_index_i,:,:,:]
+            #canny_edges=kornia.filters.sobel(this_img.permute(2, 0, 1).view(1, 3, self.H, self.W))
+            canny_edges =self.sobel_images[cam_i,t_index_i]
+            canny_edges=(canny_edges).view(-1,3)
+            probability = GM_Resi(
+                canny_edges,0, stage_1_gamma
+            )
             rgb_train_importance = (
-                self.rays_rgbs.view(self.N_cam,self.N_time,-1,3)[cam_i, t_index_i * key_f_num]
+                self.rays_rgbs.view(self.N_cam,self.N_time,-1,3)[cam_i, t_index_i ]
                 .view(-1, 3)
             )
 
-            frame_time = self.times[ cam_i, t_index_i * key_f_num]
+            frame_time = self.times[ cam_i, t_index_i ]
 
             # Calcualte the probability of sampling each ray based on the difference of global median and local values.
-            probability = GM_Resi(
-                rgb_train_importance, self.global_mean[cam_i], stage_1_gamma
-            )
-            print(probability.shape)
             select_inds = torch.multinomial(
-                probability, self.batch_size//2
+                probability, self.importance_sampling_size
             )
 
-
-
-
+            importance_sample_num=select_inds.shape[0]
 
             rgb_train_importance = rgb_train_importance[select_inds]
 
-            im_idx= torch.full((self.batch_size//2,),cam_i,dtype=torch.int32)
-            times_= frame_time.expand(self.batch_size//2)
-            tmp = {'img_idxs': im_idx, 'pix_idxs': select_inds,
+            cam_idxs_2 = np.random.choice(self.N_cam, self.batch_size - importance_sample_num, p=None, replace=True)
+            time_indices_2 = np.random.choice(self.N_time, self.batch_size -importance_sample_num, p=None, replace=True)
+            ray_indices_2 = np.random.choice(self.W * self.H, self.batch_size -importance_sample_num, p=None, replace=True)
+            im_idx= torch.full((importance_sample_num,),cam_i,dtype=torch.int32)
+            times_=torch.full((importance_sample_num,),frame_time.item(),dtype=torch.float)[:,None]
+            cam_idxs = np.concatenate([im_idx, cam_idxs_2], axis=0)
+            times_ = np.concatenate([ times_, self.times[cam_idxs_2, time_indices_2]], axis=0)
+            ray_indices = np.concatenate([select_inds, ray_indices_2], axis=0)
+            rgbs = self.rays_rgbs.view(self.N_cam, self.N_time, self.H * self.W, 3)[cam_idxs_2, time_indices_2, ray_indices_2]
+            rgb_train_importance=torch.cat([rgb_train_importance,rgbs],dim=0)
+            tmp = {'img_idxs': cam_idxs, 'pix_idxs': ray_indices,
                    'times': times_,
                    'rgb': rgb_train_importance[:, :3]}
-
-
-
-
-
         elif (
                 self.sample_stages == 2
         ):

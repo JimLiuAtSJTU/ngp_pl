@@ -158,6 +158,7 @@ class DNeRFSystem(LightningModule):
                   'downsample': self.hparams.downsample}
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
+        self.train_dataset.sample_stages=2
         self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 1 // 4
 
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
@@ -168,6 +169,7 @@ class DNeRFSystem(LightningModule):
         self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(1)
 
         self.test_dataset = dataset(split='test', **kwargs)
+        torch.cuda.empty_cache()
     def configure_optimizers(self):
         # define additional parameters
         self.register_buffer('directions', self.train_dataset.directions.to(self.device))
@@ -194,7 +196,6 @@ class DNeRFSystem(LightningModule):
         # apex afusedadam is better than pytorch adam, fused adam, amsgrad
         # but each implementation causes nan in some times.
         '''
-        numerical issue is hard to fix.
         pytorch fused adam is significaltly (20%+) slower than apex fused adam.
         and with slightly worse reconstruction quality.
         consider double check later.
@@ -208,17 +209,6 @@ class DNeRFSystem(LightningModule):
         float16 will be likely to run into numeric issue.
         
         add weight decay to avoid the parameter of nn become too large ( inf )
-        
-        
-        adding weight decay is equalt to add L2 regularization of the parameters to loss function.
-        
-        avoid parameter -> 50000+
-        
-        50000^2= 2.5e9
-        
-        adding a  5e-9 weight decay is OK. without damaging the reconstruction quality
-        param to 50000 -> 0.25 in loss, is great enough because the loss < 0.1 when PSNR > 20.
-         
         '''
 
         #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
@@ -242,7 +232,7 @@ class DNeRFSystem(LightningModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,
-                          num_workers=8,
+                          num_workers=16,
                           persistent_workers=True,
                           batch_size=None,
                           pin_memory=True)
@@ -269,6 +259,9 @@ class DNeRFSystem(LightningModule):
         elif self.current_epoch==180:
             self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
             self.train_dataset.sample_stages=3
+        elif self.current_epoch==300:
+            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
+            self.train_dataset.sample_stages=1
 
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
