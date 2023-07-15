@@ -284,7 +284,7 @@ class N3DV_dataset_2(BaseDataset):
 
 
         key_f_num=30
-        stage_1_gamma= 0.01
+        stage_1_gamma= 0.2 # 0.001 from hexplane code, but the improtance effect is very low. probabilities are almost the same
         stage_2_gamma= 0.02 # 0.02 from hexplane code
         stage_3_alpha= 0.1 # 0.1 from hexplane code
         # self.sample_stages
@@ -303,7 +303,6 @@ class N3DV_dataset_2(BaseDataset):
                 self.N_time // key_f_num
             )
             # Calcualte the probability of sampling each ray based on the difference of global median and local values.
-            this_img=self.rays_rgbs.view(self.N_cam,self.N_time, self.H , self.W, 3)[cam_i,t_index_i,:,:,:]
             #canny_edges=kornia.filters.sobel(this_img.permute(2, 0, 1).view(1, 3, self.H, self.W))
             canny_edges =self.sobel_images[cam_i,t_index_i]
             canny_edges=(canny_edges).view(-1,3)

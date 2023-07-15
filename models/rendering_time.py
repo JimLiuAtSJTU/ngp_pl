@@ -233,7 +233,7 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     3. Use volume rendering to combine the result (front to back compositing
        and early stop the ray if its transmittance is below a threshold)
     """
-    time_grid_indx = kwargs['t_grid_indx']
+    time_grid_indx = kwargs.get('t_grid_indx',0)
     exp_step_factor = kwargs.get('exp_step_factor', 0.)
 
     #print(rays_o,rays_d)
@@ -290,11 +290,19 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     results['depth'], results['rgb'], results['ws']) = \
         VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
                              rays_a, kwargs.get('T_threshold', 1e-4))
+    try:
+        (results['vr_samples_dynamic'], results['opacity_dynamic'],
+        results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
+            VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
+                                 rays_a, kwargs.get('T_threshold', 1e-4))
+    except:
+        results['vr_samples_dynamic']=results['vr_samples']
 
-    (results['vr_samples_dynamic'], results['opacity_dynamic'],
-    results['depth_dynamic'], results['rgb_dynamic'], results['ws_dynamic']) = \
-        VolumeRenderer_2.apply(extra['sigma_dynamic'], extra['rgb_dynamic'].contiguous(), results['deltas'], results['ts'],
-                             rays_a, kwargs.get('T_threshold', 1e-4))
+        results['opacity'] = results['opacity']
+        results['depth'] = results['depth']
+        results['rgb'] = results['rgb']
+        results['rgb'] = results['rgb']
+
 
     '''
     next step may be to optimize the reconstruction quality by using the "far background field" in SUDS.

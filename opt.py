@@ -19,7 +19,7 @@ def get_opts():
     parser.add_argument('--root_dir', type=str, required=True,
                         help='root directory of dataset')
     parser.add_argument('--dataset_name', type=str, default='nsvf',
-                        choices=['nerf', 'nsvf', 'colmap', 'nerfpp', 'rtmv','n3dv','n3dv2'],
+                        choices=['nerf', 'nsvf', 'colmap', 'nerfpp', 'rtmv','n3dv','n3dv2','dnerf'],
                         help='which dataset to train/test')
     parser.add_argument('--split', type=str, default='train',
                         choices=['train', 'trainval', 'trainvaltest'],

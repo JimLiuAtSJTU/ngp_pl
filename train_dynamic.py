@@ -132,6 +132,9 @@ class DNeRFSystem(LightningModule):
             self.render_function=render_func
         elif self.hparams.model_type==-1:
             self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
+            from models.rendering import render as render_func
+
+            self.render_function=render_func
         else:
             from models.rendering_time import render as render_func
             self.render_function=render_func
@@ -164,7 +167,7 @@ class DNeRFSystem(LightningModule):
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
         if self.hparams.ray_sampling_strategy=='importance_time_batch':
             self.train_dataset.generate_importance_sampling_indices(self.hparams.cache_importance_epochs)
-        self.train_dataset.set_t_resolution(1)
+        #self.train_dataset.set_t_resolution(1)
         pynvml.nvmlInit()
         self.nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(1)
 
@@ -258,10 +261,10 @@ class DNeRFSystem(LightningModule):
             self.train_dataset.sample_stages=2
         elif self.current_epoch==180:
             self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
-            self.train_dataset.sample_stages=3
-        elif self.current_epoch==300:
+            self.train_dataset.sample_stages=2
+        elif self.current_epoch==240:
             self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
-            self.train_dataset.sample_stages=1
+            self.train_dataset.sample_stages=3
 
         if self.hparams.ray_sampling_strategy != 'importance_time_batch':
             return
@@ -400,13 +403,14 @@ class DNeRFSystem(LightningModule):
         kwargs = {'test_time': split!='train',
                   'times':times,
                   'random_bg': self.hparams.random_bg}
-
-        if self.hparams.scale > 0.5:
+        if self.hparams.dataset_name=='dnerf':
+            kwargs['exp_step_factor'] = 0
+        elif self.hparams.scale > 0.5:
             kwargs['exp_step_factor'] = 1/256
         if self.hparams.use_exposure:
             kwargs['exposure'] = batch['exposure']
 
-        if self.hparams.ray_sampling_strategy in ['batch_time','importance_time_batch','hirachy' ]:
+        if self.hparams.ray_sampling_strategy in ['batch_time','importance_time_batch','hirachy','all_times' ]:
             kwargs['t_grid_indx']= batch['t_grid_indx']
 
         #assert rays_o.shape[0]==rays_d.shape[0]==self.train_dataset.batch_size
@@ -646,6 +650,7 @@ if __name__ == '__main__':
     print(f'{datetime.datetime.now()},start traning.')
     #torch._dynamo.config.verbose = True
     #torch._dynamo.config.suppress_errors = True
+    torch.cuda.empty_cache()
     trainer.fit(compiled_system, ckpt_path=hparams.ckpt_path)
 
     t1=datetime.datetime.now()

@@ -111,6 +111,13 @@ class DNerfDataset(Dataset):
         # Generate N_random_pose random poses, which we could render depths from these poses and apply depth smooth loss to the rendered depth.
         if split == "train":
             self.init_random_pose()
+        W, H = self.img_wh
+
+        K = np.float32([[self.focal, 0, W/2],
+                        [0, self.focal, H/2],
+                        [0,  0,   1]])
+        #print(np.linalg.cond(K))
+        self.K = torch.FloatTensor(K)
 
     def init_random_pose(self):
         # Randomly sample N_random_pose radius, phi, theta and times.
