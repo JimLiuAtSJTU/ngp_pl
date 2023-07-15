@@ -34,6 +34,7 @@ from kornia.utils.grid import create_meshgrid3d
 from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
 from models.networks_dynamic_plus import NGP_time_code
+from models.networks_dynamic_simple import NGP_time_code_simple
 
 #from models.rendering import render, MAX_SAMPLES
 from models.rendering_time import render,MAX_SAMPLES
@@ -131,8 +132,8 @@ class DNeRFSystem(LightningModule):
             from models.rendering import render as render_func
             self.render_function=render_func
         elif self.hparams.model_type==-1:
-            self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
-            from models.rendering import render as render_func
+            self.model = NGP_time_code_simple(scale=self.hparams.scale, rgb_act=rgb_act)
+            from models.rendering_time import render as render_func
 
             self.render_function=render_func
         else:
@@ -141,7 +142,7 @@ class DNeRFSystem(LightningModule):
 
             self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
 
-        if not isinstance(self.model,NGP_time_code):
+        if not isinstance(self.model,(NGP_time_code,NGP_time_code_simple)):
             G = self.model.grid_size
             self.model.register_buffer('density_grid',
                 torch.zeros(self.model.cascades, G**3))
@@ -162,7 +163,7 @@ class DNeRFSystem(LightningModule):
         self.train_dataset = dataset(split=self.hparams.split, **kwargs)
         self.train_dataset.batch_size = self.hparams.batch_size
         self.train_dataset.sample_stages=2
-        self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 1 // 4
+        self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 2 // 4
 
         self.train_dataset.ray_sampling_strategy = self.hparams.ray_sampling_strategy
         if self.hparams.ray_sampling_strategy=='importance_time_batch':
@@ -260,9 +261,9 @@ class DNeRFSystem(LightningModule):
             self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
             self.train_dataset.sample_stages=2
         elif self.current_epoch==180:
-            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
+            self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 7 // 8
             self.train_dataset.sample_stages=2
-        elif self.current_epoch==240:
+        elif self.current_epoch==300:
             self.train_dataset.importance_sampling_size = self.train_dataset.batch_size * 3 // 4
             self.train_dataset.sample_stages=3
 
