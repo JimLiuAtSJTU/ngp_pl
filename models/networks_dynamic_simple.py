@@ -358,8 +358,12 @@ class NGP_time_code_simple(nn.Module):
 
             t = t.expand(x.shape[0], 1)
         nan_check(t)
-
-        assert x.shape[0] > 0
+        try:
+            assert x.shape[0] > 0
+        except:
+            print(x)
+            print(x.shape)
+            exit(-1)
         nan_check(x)
         nan_check(d)
 
@@ -541,7 +545,7 @@ class NGP_time_code_simple(nn.Module):
 
                 if self.static_only:
                     rand_t=torch.zeros_like(rand_t)
-                density_grid_tmp[c, indices] = self.dynamic_density(xyzs_w, rand_t,  return_feat=False)
+                density_grid_tmp[c, indices] = self.dynamic_density(xyzs_w, rand_t,  return_feat=False).float()
             # TODO: consider the decay.
             '''
             important!!!

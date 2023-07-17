@@ -35,6 +35,7 @@ from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
 from models.networks_dynamic_plus import NGP_time_code
 from models.networks_dynamic_simple import NGP_time_code_simple
+from models.networks_dct import DCT_NGP
 
 #from models.rendering import render, MAX_SAMPLES
 from models.rendering_time import render,MAX_SAMPLES
@@ -132,8 +133,9 @@ class DNeRFSystem(LightningModule):
             from models.rendering import render as render_func
             self.render_function=render_func
         elif self.hparams.model_type==-1:
-            self.model = NGP_time_code_simple(scale=self.hparams.scale, rgb_act=rgb_act)
-            from models.rendering_time import render as render_func
+            #self.model = NGP_time_code_simple(scale=self.hparams.scale, rgb_act=rgb_act)
+            self.model = NGP_4D(scale=self.hparams.scale, rgb_act=rgb_act)
+            from models.rendering import render as render_func
 
             self.render_function=render_func
         else:
@@ -142,7 +144,7 @@ class DNeRFSystem(LightningModule):
 
             self.model = NGP_time_code(scale=self.hparams.scale, rgb_act=rgb_act)
 
-        if not isinstance(self.model,(NGP_time_code,NGP_time_code_simple)):
+        if not isinstance(self.model,(NGP_time_code,NGP_time_code_simple,DCT_NGP)):
             G = self.model.grid_size
             self.model.register_buffer('density_grid',
                 torch.zeros(self.model.cascades, G**3))

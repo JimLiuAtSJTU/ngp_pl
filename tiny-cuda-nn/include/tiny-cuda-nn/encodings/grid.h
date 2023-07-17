@@ -1474,6 +1474,7 @@ GridEncoding<T>* create_grid_encoding_templated_1(uint32_t n_dims_to_encode, con
 		case 8: return create_grid_encoding_templated_2<T, 8, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 16: return create_grid_encoding_templated_2<T, 16, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 20: return create_grid_encoding_templated_2<T, 20, HASH_TYPE>(n_dims_to_encode, encoding);
+        case 32: return create_grid_encoding_templated_2<T, 40, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 40: return create_grid_encoding_templated_2<T, 40, HASH_TYPE>(n_dims_to_encode, encoding);
 		case 48: return create_grid_encoding_templated_2<T, 48, HASH_TYPE>(n_dims_to_encode, encoding);
 
