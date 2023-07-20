@@ -33,7 +33,7 @@ from dyna_datasets.ray_utils import axisangle_to_R, get_rays,get_rays_hexplane_m
 from kornia.utils.grid import create_meshgrid3d
 from models.networks_dynamic import NGP_4D ,NGP_time
 from models.networks import NGP
-from models.networks_dynamic_plus import NGP_time_code
+from models.networks_dynamic_plus import NGP_time_code_single as NGP_time_code
 from models.networks_dynamic_simple import NGP_time_code_simple
 from models.networks_dct import DCT_NGP
 
@@ -194,8 +194,20 @@ class DNeRFSystem(LightningModule):
 
         net_params = []
         for n, p in self.named_parameters():
-            if n not in ['dR', 'dT']: net_params += [p]
-
+            if 'lpips' in n:continue
+            if n not in ['dR', 'dT']:
+                #print(n)
+                lr_= self.hparams.lr
+                if 'net' in n:
+                    lr_ = lr_
+                net_params += [
+                    {
+                        'params':p,
+                        'lr':lr_
+                    }
+                ]
+        #print(net_params)
+        #exit(0)
         opts = []
         #https://github.com/NVlabs/tiny-cuda-nn/issues/219
         # use amsgrad for better numerical stability
@@ -219,10 +231,8 @@ class DNeRFSystem(LightningModule):
 
         #self.net_opt = Adam(net_params, self.hparams.lr,eps=1e-15,fused=True,#amsgrad=True,
         #                    weight_decay=5e-9 # think that weight decay = 1e-6 is definitely ok to avoid numerical issue, but with low reconstruction quality.
-        #                    ) # ngp_pl repository set eps  1e-15, but may result in numerical error
         self.net_opt = FusedAdam(net_params, self.hparams.lr,eps=1e-15,
                                  weight_decay=5e-8
-
                                  ) # ngp_pl repository set eps  1e-15, but may result in numerical error
 
         opts += [self.net_opt]

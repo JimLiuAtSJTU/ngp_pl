@@ -494,7 +494,7 @@ class NeRFRenderer(nn.Module):
                                 sigmas = self.density(cas_xyzs, time_perturb)['sigma'].reshape(-1).detach()
                                 sigmas *= self.density_scale
                                 # assign 
-                                tmp_grid[t, cas, indices] = sigmas
+                                tmp_grid[t, cas, indices] = sigmas.to(tmp_grid.dtype)
 
         # partial update (half the computation)
         # just update 100 times should be enough... too time consuming.
@@ -528,7 +528,7 @@ class NeRFRenderer(nn.Module):
                     sigmas = self.density(cas_xyzs, time_perturb)['sigma'].reshape(-1).detach()
                     sigmas *= self.density_scale
                     # assign 
-                    tmp_grid[t, cas, indices] = sigmas
+                    tmp_grid[t, cas, indices] = sigmas.to(tmp_grid.dtype)
 
         ## max-pool on tmp_grid for less aggressive culling [No significant improvement...]
         # invalid_mask = tmp_grid < 0

@@ -647,10 +647,10 @@ class Trainer(object):
 
             self.train_one_epoch(train_loader)
 
-            if self.workspace is not None and self.local_rank == 0:
-                self.save_checkpoint(full=True, best=False)
+            #if self.workspace is not None and self.local_rank == 0:
+            #    self.save_checkpoint(full=True, best=False)
 
-            if self.epoch % self.eval_interval == 0:
+            if self.epoch % self.eval_interval == 0 or self.epoch==max_epochs:
                 self.evaluate_one_epoch(valid_loader)
                 self.save_checkpoint(full=False, best=True)
 
