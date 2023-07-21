@@ -1,5 +1,17 @@
+import torch
+
 from nerf.utils import *
 from nerf.utils import Trainer as _Trainer
+
+
+def check_nan(x:torch.Tensor):
+    assert not torch.any(torch.isnan(x))
+    assert not torch.any(torch.isinf(x))
+
+def assymetric_entropy(x:torch.Tensor):
+
+    y = torch.clamp(x, min=1e-7, max=1)  # clamp to avoid nan
+    return -y * torch.log(y)
 
 
 class Trainer(_Trainer):
@@ -40,7 +52,7 @@ class Trainer(_Trainer):
         rays_o = data['rays_o'] # [B, N, 3]
         rays_d = data['rays_d'] # [B, N, 3]
         time = data['time'] # [B, 1]
-
+        time.requires_grad=True
         # if there is no gt image, we train with CLIP loss.
         if 'images' not in data:
 
@@ -116,7 +128,14 @@ class Trainer(_Trainer):
 
         # deform regularization
         if 'deform' in outputs and outputs['deform'] is not None:
-            loss = loss + 1e-3 * outputs['deform'].abs().mean()
+            #d_time=torch.autograd.grad(outputs['deform'].abs().mean(),time,retain_graph=True)[0].abs()
+            #print(outputs['deform'].abs().mean())
+            erf_= (torch.special.erf(outputs['sigmas']/5))
+            check_nan(erf_)
+            entr_=assymetric_entropy(erf_)
+            check_nan(entr_)
+            #loss = loss + 1e-3 *entr_.mean()
+            loss = loss + 1e-3 * outputs['deform'].abs().mean()# + 1e-7*d_time.mean()
 
         return pred_rgb, gt_rgb, loss
 

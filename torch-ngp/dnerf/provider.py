@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 
 from .utils import get_rays, srgb_to_linear
 
+regenerate = True
 
 # ref: https://github.com/NVlabs/instant-ngp/blob/b76004c8cf478880227401ae763be4c02f80b62f/include/neural-graphics-primitives/nerf_loader.h#L50
 def nerf_matrix_to_ngp(pose, scale=0.33, offset=[0, 0, 0]):
@@ -104,7 +105,6 @@ class NeRFDataset:
         self.offset = opt.offset # camera offset
         self.bound = opt.bound # bounding box half length, also used as the radius to random sample poses.
         self.fp16 = opt.fp16 # if preload, load into fp16.
-
         self.training = self.type in ['train', 'all', 'trainval']
         self.num_rays = self.opt.num_rays if self.training else -1
 
@@ -160,94 +160,129 @@ class NeRFDataset:
         # read images
         frames = transform["frames"]
         #frames = sorted(frames, key=lambda d: d['file_path']) # why do I sort...
-        
-        # for colmap, manually interpolate a test set.
-        if self.mode == 'colmap' and type == 'test':
-            
-            # choose two random poses, and interpolate between.
-            f0, f1 = np.random.choice(frames, 2, replace=False)
-            pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
-            pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
-            time0 = f0['time'] if 'time' in f0 else int(os.path.basename(f0['file_path'])[:-4])
-            time1 = f1['time'] if 'time' in f1 else int(os.path.basename(f1['file_path'])[:-4])
-            rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
-            slerp = Slerp([0, 1], rots)
 
-            self.poses = []
-            self.images = None
-            self.times = []
-            for i in range(n_test + 1):
-                ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
-                pose = np.eye(4, dtype=np.float32)
-                pose[:3, :3] = slerp(ratio).as_matrix()
-                pose[:3, 3] = (1 - ratio) * pose0[:3, 3] + ratio * pose1[:3, 3]
-                self.poses.append(pose)
-                time = (1 - ratio) * time0 + ratio * time1
-                self.times.append(time)
-            
-            # manually find max time to normalize
-            if 'time' not in f0:
-                max_time = 0
-                for f in frames:
-                    max_time = max(max_time, int(os.path.basename(f['file_path'])[:-4]))
-                self.times = [t / max_time for t in self.times]
+        split = 'train' if self.training else 'test'
+        file_ = os.path.join(self.root_path, f'useful_data_{split}.pt')
+
+        if os.path.exists(file_) and not regenerate:
+            useful_data = torch.load(file_)
+            self.times=useful_data['time']
+            self.poses=useful_data['pose']
+            self.images=useful_data['img']
+            self.H = self.images[0].shape[0] // downscale
+            self.W = self.images[1].shape[1] // downscale
 
         else:
-            # for colmap, manually split a valid set (the first frame).
-            if self.mode == 'colmap':
-                if type == 'train':
-                    frames = frames[1:]
-                elif type == 'val':
-                    frames = frames[:1]
-                # else 'all' or 'trainval' : use all frames
-            
-            self.poses = []
-            self.images = []
-            self.times = []
 
-            # assume frames are already sorted by time!
-            for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
-                f_path = os.path.join(self.root_path, f['file_path'])
-                if self.mode == 'blender' and '.' not in os.path.basename(f_path):
-                    f_path += '.png' # so silly...
 
-                # there are non-exist paths in fox...
-                if not os.path.exists(f_path):
-                    continue
-                
-                pose = np.array(f['transform_matrix'], dtype=np.float32) # [4, 4]
-                pose = nerf_matrix_to_ngp(pose, scale=self.scale, offset=self.offset)
+            # for colmap, manually interpolate a test set.
+            if self.mode == 'colmap' and type == 'test':
 
-                image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3] o [H, W, 4]
-                if self.H is None or self.W is None:
-                    self.H = image.shape[0] // downscale
-                    self.W = image.shape[1] // downscale
+                # choose two random poses, and interpolate between.
+                f0, f1 = np.random.choice(frames, 2, replace=False)
+                pose0 = nerf_matrix_to_ngp(np.array(f0['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+                pose1 = nerf_matrix_to_ngp(np.array(f1['transform_matrix'], dtype=np.float32), scale=self.scale, offset=self.offset) # [4, 4]
+                time0 = f0['time'] if 'time' in f0 else int(os.path.basename(f0['file_path'])[:-4])
+                time1 = f1['time'] if 'time' in f1 else int(os.path.basename(f1['file_path'])[:-4])
+                rots = Rotation.from_matrix(np.stack([pose0[:3, :3], pose1[:3, :3]]))
+                slerp = Slerp([0, 1], rots)
 
-                # add support for the alpha channel as a mask.
-                if image.shape[-1] == 3: 
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                else:
-                    image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
+                self.poses = []
+                self.images = None
+                self.times = []
+                for i in range(n_test + 1):
+                    ratio = np.sin(((i / n_test) - 0.5) * np.pi) * 0.5 + 0.5
+                    pose = np.eye(4, dtype=np.float32)
+                    pose[:3, :3] = slerp(ratio).as_matrix()
+                    pose[:3, 3] = (1 - ratio) * pose0[:3, 3] + ratio * pose1[:3, 3]
+                    self.poses.append(pose)
+                    time = (1 - ratio) * time0 + ratio * time1
+                    self.times.append(time)
 
-                if image.shape[0] != self.H or image.shape[1] != self.W:
-                    image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
-                    
-                image = image.astype(np.float32) / 255 # [H, W, 3/4]
+                # manually find max time to normalize
+                if 'time' not in f0:
+                    max_time = 0
+                    for f in frames:
+                        max_time = max(max_time, int(os.path.basename(f['file_path'])[:-4]))
+                    self.times = [t / max_time for t in self.times]
 
-                # frame time
-                if 'time' in f:
-                    time = f['time']
-                else:
-                    time = int(os.path.basename(f['file_path'])[:-4]) # assume frame index as time
+            else:
+                # for colmap, manually split a valid set (the first frame).
+                if self.mode == 'colmap':
+                    if type == 'train':
+                        frames = frames[1:]
+                    elif type == 'val':
+                        frames = frames[:1]
+                    # else 'all' or 'trainval' : use all frames
 
-                self.poses.append(pose)
-                self.images.append(image)
-                self.times.append(time)
-            
-        self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
-        if self.images is not None:
-            self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
-        self.times = torch.from_numpy(np.asarray(self.times, dtype=np.float32)).view(-1, 1) # [N, 1]
+                self.poses = []
+                self.images = []
+                self.times = []
+
+                # assume frames are already sorted by time!
+                for f in tqdm.tqdm(frames, desc=f'Loading {type} data'):
+                    f_path = os.path.join(self.root_path, f['file_path'])
+                    if self.mode == 'blender' and '.' not in os.path.basename(f_path):
+                        f_path += '.png' # so silly...
+
+                    # there are non-exist paths in fox...
+                    if not os.path.exists(f_path):
+                        continue
+
+                    pose = np.array(f['transform_matrix'], dtype=np.float32) # [4, 4]
+                    pose = nerf_matrix_to_ngp(pose, scale=self.scale, offset=self.offset)
+
+                    image = cv2.imread(f_path, cv2.IMREAD_UNCHANGED) # [H, W, 3] o [H, W, 4]
+                    if self.H is None or self.W is None:
+                        self.H = image.shape[0] // downscale
+                        self.W = image.shape[1] // downscale
+
+                    # add support for the alpha channel as a mask.
+                    if image.shape[-1] == 3:
+                        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    else:
+                        image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
+
+                    if image.shape[0] != self.H or image.shape[1] != self.W:
+                        image = cv2.resize(image, (self.W, self.H), interpolation=cv2.INTER_AREA)
+
+                    image = image.astype(np.float32) / 255 # [H, W, 3/4]
+
+                    #if split=='train':
+                    #    preturb_=np.random.normal(0,0.1,size=image.shape)
+
+                    #    image=image+preturb_
+
+                    #    img2=np.clip(image*255,a_min=0,a_max=255)
+                    #    img2=img2.astype(np.uint8)
+                    #    img2 = cv2.cvtColor(img2, cv2.COLOR_RGBA2BGRA)
+                    #    im_name='.'+f['file_path'].split('.')[1]
+                    #    pret_path=os.path.join(self.root_path,f'{im_name}_preturb.png')
+                    #    cv2.imwrite(pret_path,img2)
+
+
+                    # frame time
+                    if 'time' in f:
+                        time = f['time']
+                    else:
+                        time = int(os.path.basename(f['file_path'])[:-4]) # assume frame index as time
+
+                    self.poses.append(pose)
+                    self.images.append(image)
+                    self.times.append(time)
+
+
+            self.poses = torch.from_numpy(np.stack(self.poses, axis=0)) # [N, 4, 4]
+            if self.images is not None:
+                self.images = torch.from_numpy(np.stack(self.images, axis=0)) # [N, H, W, C]
+            self.times = torch.from_numpy(np.asarray(self.times, dtype=np.float32)).view(-1, 1) # [N, 1]
+
+            useful_data={
+                'time':self.times,
+                'pose':self.poses,
+                'img':self.images
+            }
+            torch.save(useful_data, file_)
 
         # manual normalize
         if self.times.max() > 1:

@@ -7,7 +7,7 @@ import argparse
 from dnerf.provider import NeRFDataset
 from dnerf.gui import NeRFGUI
 from dnerf.utils import *
-
+from apex.optimizers import FusedAdam
 from functools import partial
 from loss import huber_loss
 
@@ -19,7 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('-O', action='store_true', help="equals --fp16 --cuda_ray --preload")
     parser.add_argument('--test', action='store_true', help="test mode")
     parser.add_argument('--workspace', type=str, default='workspace')
-    parser.add_argument('--seed', type=int, default=20230420)
+    parser.add_argument('--seed', type=int, default=1337)
 
     ### training options
     parser.add_argument('--iters', type=int, default=30000, help="training iters")
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_rays', type=int, default=1024, help="num rays sampled per image for each training step")
     parser.add_argument('--cuda_ray', action='store_true', help="use CUDA raymarching instead of pytorch")
     parser.add_argument('--max_steps', type=int, default=1024, help="max num steps sampled per ray (only valid when using --cuda_ray)")
-    parser.add_argument('--update_extra_interval', type=int, default=300, help="iter interval to update extra status (only valid when using --cuda_ray)")
+    parser.add_argument('--update_extra_interval', type=int, default=100, help="iter interval to update extra status (only valid when using --cuda_ray)")
     parser.add_argument('--num_steps', type=int, default=128, help="num steps sampled per ray (only valid when NOT using --cuda_ray)")
     parser.add_argument('--upsample_steps', type=int, default=0, help="num steps up-sampled per ray (only valid when NOT using --cuda_ray)")
     parser.add_argument('--max_ray_batch', type=int, default=4096, help="batch size of rays at inference to avoid OOM (only valid when NOT using --cuda_ray)")
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_type', type=int, default=1,choices=[0,1], help="0 indicates ashawkey model, 1 indicates latent code model")
 
     opt = parser.parse_args()
-    if opt.num_rays!=4096:
+    if opt.num_rays<=4096:
         times_=opt.num_rays/4096
         opt.iters = int(opt.iters/times_)
 
@@ -144,14 +144,18 @@ if __name__ == '__main__':
     
     else:
 
-        optimizer = lambda model: torch.optim.RAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
+        #optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
+        optimizer = lambda model: FusedAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
+
+
+        #optimizer = lambda model: torch.optim.RAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
 
         train_loader = NeRFDataset(opt, device=device, type='train').dataloader()
 
         # decay to 0.1 * init_lr at last iter step
         scheduler = lambda optimizer: optim.lr_scheduler.LambdaLR(optimizer, lambda iter: 0.1 ** min(iter / opt.iters, 1))
 
-        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=[PSNRMeter(),SSIMMeter(),LPIPSMeter()], use_checkpoint=opt.ckpt, eval_interval=50)
+        trainer = Trainer('ngp', opt, model, device=device, workspace=opt.workspace, optimizer=optimizer, criterion=criterion, ema_decay=0.95, fp16=opt.fp16, lr_scheduler=scheduler, scheduler_update_every_step=True, metrics=[PSNRMeter(),SSIMMeter(),LPIPSMeter(),MS_SSIM_Meter()], use_checkpoint=opt.ckpt, eval_interval=50)
 
         if opt.gui:
             gui = NeRFGUI(opt, trainer, train_loader)

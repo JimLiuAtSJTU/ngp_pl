@@ -301,7 +301,7 @@ class NeRFRenderer(nn.Module):
             # sigmas = density_outputs['sigma']
             # rgbs = self.color(xyzs, dirs, **density_outputs)
             sigmas = self.density_scale * sigmas
-
+            results['sigmas']=sigmas
             #print(f'valid RGB query ratio: {mask.sum().item() / mask.shape[0]} (total = {mask.sum().item()})')
 
             # special case for CCNeRF's residual learning

@@ -632,7 +632,7 @@ class NGP_time_code_single(nn.Module):
         sigma_factor_dim = 0
 
         self.xyz_t_fusion_net = tcnn.Network(
-            n_input_dims=64, n_output_dims=48,
+            n_input_dims=64, n_output_dims=48 + 1,
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
@@ -644,6 +644,8 @@ class NGP_time_code_single(nn.Module):
         self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
         self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64,
                                                   output_dims=3  + sigma_factor_dim)  # rho for another dim
+        #self.init_tcnn_param(self.xyz_t_fusion_net)
+        #self.init_tcnn_param(self.time_latent_code)
         self.fine_tune=False
         if self.rgb_act == 'None':  # rgb_net output is log-radiance
             raise NotImplementedError
@@ -683,6 +685,15 @@ class NGP_time_code_single(nn.Module):
         )
 
         print(f'time aware NGP model--simple !!! initialized')
+    def init_tcnn_param(self,submodel,scale=1):
+        with torch.no_grad():
+            for param in submodel.parameters():
+                # print(param.storage().data_ptr())
+                # print(param,param.shape)
+
+                param += scale*(torch.rand_like(param) * 2 - 1)  # + [ -0.5, 0.5 ]
+                # print(param.storage().data_ptr())
+                # print(param,param.shape)
 
     def init_density_grids(self):
         G = self.grid_size
@@ -883,7 +894,7 @@ class NGP_time_code_single(nn.Module):
         #h = torch.cat([h,static_code,time_code],-1)
         nan_check(h)
         sigmas = TruncExp_2.apply(h[:, 0])
-        if return_feat: return sigmas, h
+        if return_feat: return sigmas, h[:,1:]
         return sigmas
 
     def background_field(self, rayso, raysd,t):
