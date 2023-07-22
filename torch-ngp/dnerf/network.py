@@ -323,7 +323,7 @@ class NeRFNetwork_2(NeRFRenderer):
 
         L = 2;
         F = 16;
-        log2_T = 5;
+        log2_T = 7;
         N_min = 30
         highest_reso = 100  # lower than the dimension
         b = np.exp(np.log(highest_reso / N_min) / (L - 1))
@@ -348,7 +348,7 @@ class NeRFNetwork_2(NeRFRenderer):
         sigma_net = []
         for l in range(num_layers):
             if l == 0:
-                in_dim = self.in_dim + self.in_dim_deform + self.in_dim_time + self.latent_code_feature_dim # concat everything
+                in_dim = self.in_dim + self.in_dim_deform + self.in_dim_time  # concat everything
             else:
                 in_dim = hidden_dim
 
@@ -433,14 +433,14 @@ class NeRFNetwork_2(NeRFRenderer):
 
         # x = self.grid_encoder(x,t_)
         t_code = self.time_latent_code(t_)
-        h = torch.cat([x, enc_ori_x,t_code, enc_t], dim=1)
+        h = torch.cat([x, enc_ori_x, enc_t], dim=1)
         for l in range(self.num_layers):
             h = self.sigma_net[l](h)
             if l != self.num_layers - 1:
                 h = F.relu(h, inplace=True)
 
         #sigma = F.relu(h[..., 0])
-        sigma = F.leaky_relu(trunc_exp(h[..., 0])-1)
+        sigma = F.relu(trunc_exp(h[..., 0])-1)
         geo_feat = h[..., 1:]
 
         # color
@@ -489,7 +489,7 @@ class NeRFNetwork_2(NeRFRenderer):
 
 
 
-        h = torch.cat([x, enc_ori_x,t_code, enc_t], dim=1)
+        h = torch.cat([x, enc_ori_x, enc_t], dim=1)
         for l in range(self.num_layers):
             h = self.sigma_net[l](h)
             if l != self.num_layers - 1:
