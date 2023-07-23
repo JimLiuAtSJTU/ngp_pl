@@ -145,7 +145,7 @@ if __name__ == '__main__':
     else:
 
         #optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
-        optimizer = lambda model: FusedAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
+        optimizer = lambda model: torch.optim.AdamW(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
 
 
         #optimizer = lambda model: torch.optim.RAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)

@@ -4,12 +4,13 @@
 
 
 
+name_='trial_mine10'
 
 for sce in "bouncingballs" "hellwarrior" "hook" "jumpingjacks" "lego" "mutant" "standup" "trex"
 do
 python -u main_dnerf.py data/dnerf/$sce \
  --workspace \
-trial_mine9/$sce \
+$name_/$sce \
 -O \
 --bound \
 1.0  \
@@ -19,7 +20,7 @@ trial_mine9/$sce \
 --update_extra_interval 100 \
 --num_rays 8192 \
 --model_type 1 \
---dt_gamma 0 2>&1 | tee -a trial_mine9$sce.log
+--dt_gamma 0 2>&1 | tee -a $name_$sce.log
 done
 
 #for sce in "bouncingballs" "hellwarrior" "hook" "jumpingjacks" "lego" "mutant" "standup" "trex"

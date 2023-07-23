@@ -8,6 +8,7 @@ from .renderer import NeRFRenderer
 import tinycudann as tcnn
 import numpy as np
 
+n_slope=0.1
 
 class NeRFNetwork(NeRFRenderer):
     def __init__(self,
@@ -423,7 +424,7 @@ class NeRFNetwork_2(NeRFRenderer):
         for l in range(self.num_layers_deform):
             deform = self.deform_net[l](deform)
             if l != self.num_layers_deform - 1:
-                deform = F.relu(deform, inplace=True)
+                deform = F.leaky_relu(deform, inplace=True,negative_slope=n_slope)
 
         x = x + deform
 
@@ -437,10 +438,10 @@ class NeRFNetwork_2(NeRFRenderer):
         for l in range(self.num_layers):
             h = self.sigma_net[l](h)
             if l != self.num_layers - 1:
-                h = F.relu(h, inplace=True)
+                h = F.leaky_relu(h, inplace=True,negative_slope=n_slope)
 
         #sigma = F.relu(h[..., 0])
-        sigma = F.relu(trunc_exp(h[..., 0])-1)
+        sigma = F.relu(trunc_exp(h[..., 0])-0.5)
         geo_feat = h[..., 1:]
 
         # color
@@ -449,7 +450,7 @@ class NeRFNetwork_2(NeRFRenderer):
         for l in range(self.num_layers_color):
             h = self.color_net[l](h)
             if l != self.num_layers_color - 1:
-                h = F.relu(h, inplace=True)
+                h = F.leaky_relu(h, inplace=True,negative_slope=n_slope)
 
         # sigmoid activation for rgb
         rgbs = torch.sigmoid(h)
@@ -472,7 +473,7 @@ class NeRFNetwork_2(NeRFRenderer):
         for l in range(self.num_layers_deform):
             deform = self.deform_net[l](deform)
             if l != self.num_layers_deform - 1:
-                deform = F.relu(deform, inplace=True)
+                deform = F.leaky_relu(deform, inplace=True,negative_slope=n_slope)
 
         x = x + deform
         results['deform'] = deform
@@ -493,10 +494,10 @@ class NeRFNetwork_2(NeRFRenderer):
         for l in range(self.num_layers):
             h = self.sigma_net[l](h)
             if l != self.num_layers - 1:
-                h = F.relu(h, inplace=True)
+                h = F.leaky_relu(h, inplace=True,negative_slope=n_slope)
 
         #sigma = F.relu(h[..., 0])
-        sigma = F.relu(trunc_exp(h[..., 0])-1)
+        sigma = F.relu(trunc_exp(h[..., 0])-0.5)
         geo_feat = h[..., 1:]
 
         results['sigma'] = sigma
@@ -561,10 +562,15 @@ class NeRFNetwork_2(NeRFRenderer):
             {'params': self.encoder.parameters(), 'lr': lr},
             {'params': self.sigma_net.parameters(), 'lr': lr_net},
             {'params': self.encoder_dir.parameters(), 'lr': lr},
-            {'params': self.color_net.parameters(), 'lr': lr_net},
+            {'params': self.color_net.parameters(), 'lr': lr_net,
+             'weight_decay':1e-5,
+             'betas':(0.9,0.999)
+             },
             {'params': self.encoder_deform.parameters(), 'lr': lr},
             {'params': self.encoder_time.parameters(), 'lr': lr},
-            {'params': self.time_latent_code.parameters(), 'lr': lr_net},
+            {'params': self.time_latent_code.parameters(), 'lr': lr_net,
+             'weight_decay':1e-7, # for regularization
+             },
             {'params': self.deform_net.parameters(), 'lr': lr_net},
         ]
         if self.bg_radius > 0:

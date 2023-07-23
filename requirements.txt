@@ -10,3 +10,5 @@ scipy
 pymcubes
 trimesh
 dearpygui
+pynvml
+tensorboard
