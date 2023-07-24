@@ -66,7 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--error_map', action='store_true', help="use error map to sample rays")
     parser.add_argument('--clip_text', type=str, default='', help="text input for CLIP guidance")
     parser.add_argument('--rand_pose', type=int, default=-1, help="<0 uses no rand pose, =0 only uses rand pose, >0 sample one rand pose every $ known poses")
-    parser.add_argument('--model_type', type=int, default=1,choices=[0,1], help="0 indicates ashawkey model, 1 indicates latent code model")
+    parser.add_argument('--model_type', type=int, default=1,choices=[0,1,2], help="0 indicates ashawkey model, 1 indicates latent code model")
 
     opt = parser.parse_args()
     if opt.num_rays<=4096:
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     elif opt.hyper:
         from dnerf.network_hyper import NeRFNetwork
     else:
-        from dnerf.network import NeRFNetwork,NeRFNetwork_2
+        from dnerf.network import NeRFNetwork,NeRFNetwork_2,NeRFNetwork_3
 
     print(opt)
     
@@ -105,9 +105,19 @@ if __name__ == '__main__':
         density_thresh=opt.density_thresh,
         bg_radius=opt.bg_radius,
     )
-    else:
+    elif opt.model_type==1:
         print('new model')
         model = NeRFNetwork_2(
+            bound=opt.bound,
+            cuda_ray=opt.cuda_ray,
+            density_scale=1,
+            min_near=opt.min_near,
+            density_thresh=opt.density_thresh,
+            bg_radius=opt.bg_radius,
+        )
+    else:
+        print('new model with different h-param')
+        model = NeRFNetwork_3(
             bound=opt.bound,
             cuda_ray=opt.cuda_ray,
             density_scale=1,

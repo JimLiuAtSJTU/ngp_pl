@@ -563,13 +563,10 @@ class NeRFNetwork_2(NeRFRenderer):
             {'params': self.sigma_net.parameters(), 'lr': lr_net},
             {'params': self.encoder_dir.parameters(), 'lr': lr},
             {'params': self.color_net.parameters(), 'lr': lr_net,
-             'weight_decay':1e-5,
-             'betas':(0.9,0.999)
              },
             {'params': self.encoder_deform.parameters(), 'lr': lr},
             {'params': self.encoder_time.parameters(), 'lr': lr},
             {'params': self.time_latent_code.parameters(), 'lr': lr_net,
-             'weight_decay':1e-7, # for regularization
              },
             {'params': self.deform_net.parameters(), 'lr': lr_net},
         ]
@@ -578,6 +575,56 @@ class NeRFNetwork_2(NeRFRenderer):
             params.append({'params': self.bg_net.parameters(), 'lr': lr_net})
 
         return params
+
+
+
+class NeRFNetwork_3(NeRFNetwork_2):
+    def __init__(self,
+                 encoding="tiledgrid",
+                 encoding_dir="sphere_harmonics",
+                 encoding_time="frequency",
+                 encoding_deform="frequency",  # "hashgrid" seems worse
+                 encoding_bg="hashgrid",
+                 num_layers=2,
+                 hidden_dim=64,
+                 geo_feat_dim=47,
+                 num_layers_color=3,
+                 hidden_dim_color=64,
+                 num_layers_bg=2,
+                 hidden_dim_bg=64,
+                 num_layers_deform=5,  # a deeper MLP is very necessary for performance.
+                 hidden_dim_deform=128,
+                 bound=1,
+                 **kwargs,
+                 ):
+        super().__init__(encoding,encoding_dir,encoding_time,encoding_deform,encoding_bg,num_layers,hidden_dim,geo_feat_dim,num_layers_color,hidden_dim_color,num_layers_bg,
+                         hidden_dim_bg,num_layers_deform,hidden_dim_deform,bound,
+                         **kwargs)
+    def get_params(self, lr, lr_net):
+
+        params = [
+            {'params': self.encoder.parameters(), 'lr': lr},
+            {'params': self.sigma_net.parameters(), 'lr': lr_net},
+            {'params': self.encoder_dir.parameters(), 'lr': lr},
+            {'params': self.color_net.parameters(), 'lr': lr_net,
+             'weight_decay':1e-6,
+             'betas':(0.9,0.999)
+             },
+            {'params': self.encoder_deform.parameters(), 'lr': lr},
+            {'params': self.encoder_time.parameters(), 'lr': lr},
+            {'params': self.time_latent_code.parameters(), 'lr': lr_net,
+             'weight_decay':1e-6,
+             'betas':(0.9,0.999)
+             },
+            {'params': self.deform_net.parameters(), 'lr': lr_net},
+        ]
+        if self.bg_radius > 0:
+            params.append({'params': self.encoder_bg.parameters(), 'lr': lr})
+            params.append({'params': self.bg_net.parameters(), 'lr': lr_net})
+
+        return params
+
+
 
 
 class grid_encoder_4d(torch.nn.Module):
