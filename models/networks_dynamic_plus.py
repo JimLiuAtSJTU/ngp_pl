@@ -10,7 +10,7 @@ from .rendering import NEAR_DISTANCE
 from kornia.utils.grid import create_meshgrid3d
 
 from .debug_utils import nan_check
-from .gridencoder import GridEncoder
+#from .gridencoder import GridEncoder
 
 class NGP_time_code(nn.Module):
     def __init__(self, scale, rgb_act='Sigmoid',static_only=False):
@@ -636,7 +636,7 @@ class NGP_time_code_single(nn.Module):
             network_config={
                 "otype": "FullyFusedMLP",
                 "activation": "ReLU",
-                "output_activation": "ReLU",
+                "output_activation": "None",
                 "n_neurons": 64,
                 "n_hidden_layers": 2,
             }
@@ -739,9 +739,9 @@ class NGP_time_code_single(nn.Module):
 
             L = 2;
             F = 20;  # 40 dim
-            log2_T = 9;  # 256 hash tables.
+            log2_T = 9;  # 512 hash tables.
             N_min = 120  # 300 frames, each part = 50framse   total, 10s.
-            highest_reso = self.time_stamps * 0.666  # lower than the dimension
+            highest_reso = self.time_stamps *1.5  # lower than the dimension
             b = np.exp(np.log(highest_reso * self.time_scale / N_min) / (L - 1))
             '''
             '''

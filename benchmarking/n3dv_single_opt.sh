@@ -16,8 +16,8 @@ for dir in     "cut_roasted_beef" "flame_salmon_1"  "flame_steak" "sear_steak" "
 do
 
 b_size=1024
-
-python train_dynamic.py --root_dir ./data/n3dv/$dir \
+#python train_dynamic.py --root_dir ./data/n3dv/$dir \
+python train_dynamic.py --root_dir /home/ubuntu/datasets/zhenhuanliu/ngp_pl/data/n3dv/$dir \
 --exp_name \
 $prefix$dir$b_size \
 --dataset_name \

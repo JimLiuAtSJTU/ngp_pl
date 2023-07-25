@@ -13,12 +13,16 @@ from einops import rearrange
 set visible devices before initializing tcnn module.
 to let run on 3090 GPU.
 '''
+
+ROOT_dir='/home/ubuntu/datasets/zhenhuanliu/ngp_pl/data/n3dv/cut_roasted_beef'
+
 import socket
 if socket.gethostname().startswith('zhenhuanliu'):
     # 227 workstation
     print(f'227 workstation')
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 else:
+    assert 'ubuntu-Z690-GAMING-X-DDR4' in socket.gethostname()
     print(f'428 server')
 
     # professor's server
@@ -106,7 +110,7 @@ class DNeRFSystem(LightningModule):
         super().__init__()
         self.save_hyperparameters(hparams)
 
-        self.warmup_steps = 256
+        self.warmup_steps = 4096 # almost 4096/300= 14 epochs
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
         self.distortion_loss_step = 300* 60 #if hparams.ray_sampling_strategy=='hirachy' else 300
 
@@ -197,13 +201,15 @@ class DNeRFSystem(LightningModule):
             if 'lpips' in n:continue
             if n not in ['dR', 'dT']:
                 #print(n)
-                lr_= self.hparams.lr
+
                 if 'net' in n:
-                    lr_ = lr_
+                    wd=1e-7
+                else:
+                    wd=5e-8
                 net_params += [
                     {
                         'params':p,
-                        'lr':lr_
+                        'weight_decay':wd
                     }
                 ]
         #print(net_params)

@@ -11,7 +11,7 @@ for sce in  "bouncingballs" "hellwarrior" "hook" "jumpingjacks" "lego" "mutant" 
 do
 
 
-name_='trial_simple_weight_decay'
+name_='trial_tune3_wdcay'
 
 python -u main_dnerf.py data/dnerf/$sce \
  --workspace \
@@ -30,7 +30,7 @@ $name_$seed/$sce \
 
 
 
-name_='trial_wdcay_tune'
+name_='trial_tune4_wdcay'
 
 python -u main_dnerf.py data/dnerf/$sce \
  --workspace \
