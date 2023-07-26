@@ -563,7 +563,7 @@ class NeRFNetwork_2(NeRFRenderer):
             {'params': self.sigma_net.parameters(), 'lr': lr_net},
             {'params': self.encoder_dir.parameters(), 'lr': lr},
             {'params': self.color_net.parameters(), 'lr': lr_net,
-             'weight_decay': 1e-9,
+             'weight_decay':5e-5,
              'betas': (0.9, 0.999)
 
              },
@@ -619,7 +619,7 @@ class NeRFNetwork_3(NeRFNetwork_2):
             {'params': self.encoder_deform.parameters(), 'lr': lr},
             {'params': self.encoder_time.parameters(), 'lr': lr},
             {'params': self.time_latent_code.parameters(), 'lr': lr_net,
-             'weight_decay':5e-5,
+             'weight_decay':1e-9,
              'betas':(0.9,0.999)
              },
             {'params': self.deform_net.parameters(), 'lr': lr_net},

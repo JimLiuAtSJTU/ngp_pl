@@ -110,7 +110,7 @@ if __name__ == '__main__':
     for name in names:
 
         # load image
-        images.append(os.path.join('rgb', f'{opt.downscale}x', f'{name}.png'))
+        images.append(os.path.join('rgb', f'{opt.downscale}x', f'{name}'))
 
         # load time
         times.append(json_meta[name]['time_id'])

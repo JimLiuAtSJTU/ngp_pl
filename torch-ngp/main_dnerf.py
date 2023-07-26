@@ -66,7 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--error_map', action='store_true', help="use error map to sample rays")
     parser.add_argument('--clip_text', type=str, default='', help="text input for CLIP guidance")
     parser.add_argument('--rand_pose', type=int, default=-1, help="<0 uses no rand pose, =0 only uses rand pose, >0 sample one rand pose every $ known poses")
-    parser.add_argument('--model_type', type=int, default=1,choices=[0,1,2], help="0 indicates ashawkey model, 1 indicates latent code model")
+    parser.add_argument('--model_type', type=int, default=1,choices=[-1,0,1,2], help="0 indicates ashawkey model, 1 indicates latent code model")
 
     opt = parser.parse_args()
     if opt.num_rays<=4096:
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     
     seed_everything(opt.seed)
 
-    if opt.model_type==0:
+    if opt.model_type<=0:
         print('ashawkey model')
         model = NeRFNetwork(
         bound=opt.bound,
@@ -155,8 +155,10 @@ if __name__ == '__main__':
     else:
 
         #optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
-        optimizer = lambda model: torch.optim.AdamW(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
-
+        if opt.model_type>=0:
+            optimizer = lambda model: torch.optim.AdamW(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
+        else:
+            optimizer = lambda model: torch.optim.Adam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
 
         #optimizer = lambda model: torch.optim.RAdam(model.get_params(opt.lr, opt.lr_net), betas=(0.9, 0.99), eps=1e-15)
 

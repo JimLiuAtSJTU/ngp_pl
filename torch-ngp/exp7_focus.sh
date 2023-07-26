@@ -1,6 +1,6 @@
 
 
-#python gpu_wait.py
+python gpu_wait.py
 
 
 
@@ -11,7 +11,7 @@ for sce in  "bouncingballs" "hellwarrior" "hook" "jumpingjacks" "lego" "mutant" 
 do
 
 
-name_='trial_tune5_wdcay'
+name_='trial_original_ashawkey_setting'
 
 python -u main_dnerf.py data/dnerf/$sce \
  --workspace \
@@ -23,29 +23,12 @@ $name_$seed/$sce \
 0.8 \
 --cuda_ray \
 --update_extra_interval 100 \
---num_rays 8192 \
---model_type 1 \
+--num_rays 4096 \
+--model_type -1 \
 --seed $seed \
 --dt_gamma 0 2>&1 | tee -a $name_$seed$sce.log
 
 
-
-name_='trial_tune6_wdcay'
-
-python -u main_dnerf.py data/dnerf/$sce \
- --workspace \
-$name_$seed/$sce \
--O \
---bound \
-1.0  \
---scale \
-0.8 \
---cuda_ray \
---update_extra_interval 100 \
---num_rays 8192 \
---model_type 2 \
---seed $seed \
---dt_gamma 0 2>&1 | tee -a $name_$seed$sce.log
 
 
 done
