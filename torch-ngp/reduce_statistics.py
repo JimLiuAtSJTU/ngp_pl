@@ -120,11 +120,12 @@ if __name__ == '__main__':
     #    'trial_new_decay_leaky_',
     #    'trial_simple_weight_decay',
     #    'trial_wdcay_tune',
-    #    'trial_tune3_wdcay',
+        'trial_tune3_wdcay',
         'trial_tune4_wdcay',
         'trial_tune5_wdcay',
         'trial_tune6_wdcay',
-
+        'trial_original_ashawkey_setting',
+        'trial_wdcay_tune7',
     ]
 
     for exp_name in exp_names:
