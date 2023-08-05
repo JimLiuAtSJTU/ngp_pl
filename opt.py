@@ -13,6 +13,8 @@ def get_opts():
                         help='0 for ngp_time, 1 for ngp_time_plus')
     parser.add_argument('--update_interval', type=int, default=16,
                         help='update interval of the grids')
+    parser.add_argument('--eval_epoch_every', type=int, default=150,
+                        help='intervals of how many epochs for evaluation')
 
 
     # dataset parameters
@@ -28,7 +30,7 @@ def get_opts():
                         help='downsample factor (<=1.0) for the images')
 
     # model parameters
-    parser.add_argument('--scale', type=float, default=15,
+    parser.add_argument('--scale', type=float, default=30,
                         help='scene scale (whole scene must lie in [-scale, scale]^3')
     parser.add_argument('--use_exposure', action='store_true', default=False,
                         help='whether to train in HDR-NeRF setting')

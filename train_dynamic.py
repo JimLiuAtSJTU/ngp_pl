@@ -15,7 +15,7 @@ to let run on 3090 GPU.
 '''
 
 ROOT_dir='/home/ubuntu/datasets/zhenhuanliu/ngp_pl/data/n3dv/cut_roasted_beef'
-
+import random
 import socket
 if socket.gethostname().startswith('zhenhuanliu'):
     # 227 workstation
@@ -109,7 +109,7 @@ class DNeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-
+        seed_everything(hparams.seed)
         self.warmup_steps = 4096 # almost 4096/300= 14 epochs
         self.update_interval = int(hparams.update_interval) # 8 or 16 seeming not to vary too much..
         self.distortion_loss_step = 300* 60 #if hparams.ray_sampling_strategy=='hirachy' else 300
@@ -245,7 +245,7 @@ class DNeRFSystem(LightningModule):
         if self.hparams.optimize_ext:
             opts += [FusedAdam([self.dR, self.dT], 1e-6)] # learning rate is hard-coded
         net_sch = CosineAnnealingLR(self.net_opt,
-                                    T_max=self.hparams.num_epochs*4//10,
+                                    T_max=self.hparams.num_epochs*4//5,
                                     eta_min=self.hparams.lr/30,
                                     last_epoch=-1
                                     )
@@ -618,6 +618,14 @@ def print_time_elapse(t0,t1,prefix=''):
     dt = (t1 - t0).seconds
     dmins = np.floor(dt / 60)
     print(f'{prefix } = {dt} seconds,i.e.{dmins} min {dt - dmins * 60} s')
+def seed_everything(seed):
+    print(f'seeding everything using seed={seed}')
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 if __name__ == '__main__':
@@ -643,7 +651,7 @@ if __name__ == '__main__':
     ckpt_cb = ModelCheckpoint(dirpath=f'ckpts/{hparams.dataset_name}/{hparams.exp_name}',
                               filename='{epoch:d}',
                               save_weights_only=True,
-                              every_n_epochs=max(1,hparams.num_epochs//5),
+                              every_n_epochs=max(1,hparams.eval_epoch_every), # every evaluate
                               save_on_train_epoch_end=True,
                               save_top_k=-1)
     callbacks = [ckpt_cb, TQDMProgressBar(refresh_rate=1)]
@@ -655,7 +663,7 @@ if __name__ == '__main__':
 
 
     trainer = Trainer(max_epochs=hparams.num_epochs,
-                      check_val_every_n_epoch=max(1,hparams.num_epochs//10),#min(5,max(1,hparams.num_epochs//5)),
+                      check_val_every_n_epoch=hparams.eval_epoch_every,#max(1,hparams.num_epochs//10),#min(5,max(1,hparams.num_epochs//5)),
                       callbacks=callbacks,
                       logger=logger,
                       enable_model_summary=False,

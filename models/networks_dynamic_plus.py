@@ -618,7 +618,7 @@ class NGP_time_code_single(nn.Module):
         maybe it's because of the complex computation graph.
         to acceletate, we may need to tune the updating strategy of density grid
         '''
-        self.encoder_static = self.__get_hash_encoder(input_dims=3)
+        #self.encoder_static = self.__get_hash_encoder(input_dims=3)
         self.encoder_dynamic = self.__get_hash_encoder(input_dims=3, config='xyz_dynamic')
         self.time_latent_code = self.__get_hash_encoder(input_dims=1, config='time_latent_code')
         self.dir_encoder = \
@@ -641,7 +641,7 @@ class NGP_time_code_single(nn.Module):
                 "n_hidden_layers": 2,
             }
         )
-        self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
+        #self.rgb_net_static = self.__get_rgb_mlp(input_dims=32, output_dims=3)
         self.rgb_net_dynamic = self.__get_rgb_mlp(input_dims=64,
                                                   output_dims=3  + sigma_factor_dim)  # rho for another dim
         #self.init_tcnn_param(self.xyz_t_fusion_net)
@@ -651,7 +651,7 @@ class NGP_time_code_single(nn.Module):
             raise NotImplementedError
 
         self.init_density_grids()
-
+        '''
         self.background_rgb_mlp = tcnn.NetworkWithInputEncoding(
             n_input_dims=7, n_output_dims=3,
             encoding_config={
@@ -683,6 +683,7 @@ class NGP_time_code_single(nn.Module):
                 "n_hidden_layers": 2,  # maybe only one layer is enough?
             }
         )
+        '''
 
         print(f'time aware NGP model--simple !!! initialized')
     def init_tcnn_param(self,submodel,scale=1):

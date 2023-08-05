@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/zhenhuanliu/anaconda3/envs/ngp_v2/include/python3.9",
+                "/home/zhenhuanliu/anaconda3/envs/ngp_v2/lib/python3.9/site-packages/torch/include",
+                "/home/zhenhuanliu/anaconda3/envs/ngp_v2/lib/python3.9/site-packages/torch/include/torch/csrc/api/include"
+
+            ],
+            "defines": [],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
